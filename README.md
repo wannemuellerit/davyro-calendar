@@ -16,7 +16,10 @@ Die Weboberfläche ist danach standardmäßig unter <http://localhost:8089>
 erreichbar. Baïkal und die Datenbank besitzen absichtlich keinen Host-Port.
 Mit den Development-Werten aus `.env.example` ist die lokale Anmeldung
 `t-demo-m-demo` / `replace-demo-password` verfügbar. Demo-Bootstrap muss in
-Produktionsumgebungen deaktiviert werden.
+Produktionsumgebungen deaktiviert werden. Im Entwicklungsmodus zeigt die
+Loginseite diese Daten an; „Zugangsdaten einfügen“ übernimmt sie in das
+Formular. Außerhalb von `dev` bleibt die Hilfe auch bei gesetzten Werten
+verborgen.
 
 - [Davyro-Architektur](docs/davyro/architecture.md)
 - [Standalone-Betrieb](docs/davyro/standalone.md)

@@ -84,6 +84,9 @@ services:
       DAVYRO_MAIL_URL: ${DAVYRO_MAIL_URL:-}
       DAVYRO_HUB_URL: ${DAVYRO_HUB_URL:-}
       DAVYRO_ALLOW_INSECURE_LOCAL_LINKS: ${DAVYRO_ALLOW_INSECURE_LOCAL_LINKS:-false}
+      DAVYRO_CREATE_DEMO_USER: ${DAVYRO_CREATE_DEMO_USER:-false}
+      DAVYRO_DEMO_USERNAME: ${DAVYRO_DEMO_USERNAME:-}
+      DAVYRO_DEMO_PASSWORD: ${DAVYRO_DEMO_PASSWORD:-}
     volumes:
       - ./config/settings.standalone.php:/app/config/settings.php:ro
       - agendav-var:/app/var

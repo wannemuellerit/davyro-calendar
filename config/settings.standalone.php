@@ -49,6 +49,34 @@ $trustedBrowserUrl = static function (string $name): ?string {
     return null;
 };
 
+$demoCredentials = null;
+$demoUserEnabled = getenv('AGENDAV_ENVIRONMENT') === 'dev'
+    && filter_var(getenv('DAVYRO_CREATE_DEMO_USER') ?: 'false', FILTER_VALIDATE_BOOLEAN) === true;
+
+if ($demoUserEnabled) {
+    $demoUsernameValue = getenv('DAVYRO_DEMO_USERNAME');
+    $demoPasswordValue = getenv('DAVYRO_DEMO_PASSWORD');
+    $demoUsername = $demoUsernameValue === false ? '' : (string) $demoUsernameValue;
+    $demoPassword = $demoPasswordValue === false ? '' : (string) $demoPasswordValue;
+
+    $isSafeDemoValue = static function (string $value, int $maximumLength): bool {
+        return $value !== ''
+            && strlen($value) <= $maximumLength
+            && preg_match('/[\x00-\x1f\x7f]/', $value) !== 1;
+    };
+
+    if (
+        $demoUsername === trim($demoUsername)
+        && $isSafeDemoValue($demoUsername, 320)
+        && $isSafeDemoValue($demoPassword, 1024)
+    ) {
+        $demoCredentials = [
+            'username' => $demoUsername,
+            'password' => $demoPassword,
+        ];
+    }
+}
+
 return [
     'site.title' => 'Davyro Kalender',
     'site.footer' => 'Davyro Kalender · basierend auf AgenDAV',
@@ -84,4 +112,5 @@ return [
     'davyro.calendar_url' => $trustedBrowserUrl('DAVYRO_CALENDAR_URL'),
     'davyro.mail_url' => $trustedBrowserUrl('DAVYRO_MAIL_URL'),
     'davyro.hub_url' => $trustedBrowserUrl('DAVYRO_HUB_URL'),
+    'davyro.demo_credentials' => $demoCredentials,
 ];

@@ -43,6 +43,23 @@ done
 curl -fsS -c "$temporary_directory/cookies" \
     -o "$temporary_directory/login.html" "$calendar_url/login"
 
+grep -Fq 'id="davyro-fill-demo-login"' "$temporary_directory/login.html"
+grep -Fq 'Zugangsdaten einfügen' "$temporary_directory/login.html"
+grep -Fq ">$demo_user</code>" "$temporary_directory/login.html"
+grep -Fq ">$demo_password</code>" "$temporary_directory/login.html"
+
+"${compose[@]}" exec -T \
+    -e AGENDAV_ENVIRONMENT=prod \
+    calendar php -r '$config = require "/app/config/settings.php"; exit($config["davyro.demo_credentials"] === null ? 0 : 1);'
+
+"${compose[@]}" exec -T \
+    -e DAVYRO_CREATE_DEMO_USER=false \
+    calendar php -r '$config = require "/app/config/settings.php"; exit($config["davyro.demo_credentials"] === null ? 0 : 1);'
+
+"${compose[@]}" exec -T \
+    -e DAVYRO_DEMO_USERNAME=' t-demo-m-demo ' \
+    calendar php -r '$config = require "/app/config/settings.php"; exit($config["davyro.demo_credentials"] === null ? 0 : 1);'
+
 csrf_token=$(sed -n 's/.*name="_token" value="\([^"]*\)".*/\1/p' \
     "$temporary_directory/login.html" | head -n 1)
 [[ -n $csrf_token ]] || {
