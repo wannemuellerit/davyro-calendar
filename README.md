@@ -1,3 +1,33 @@
+# Davyro Kalender
+
+Dieses Repository ist der öffentliche Davyro-Fork von AgenDAV. Davyro Kalender
+verwendet AgenDAV als Weboberfläche und Baïkal als internen CalDAV-Server. Der
+erste Standalone-Stack läuft unabhängig vom Davyro Hub und ist über
+konfigurierbare Browser-Links mit Davyro Mail verknüpft.
+
+```bash
+cp .env.example .env
+# Beispiel-Secrets zwingend ersetzen
+docker compose -f compose.standalone.yaml config --quiet
+docker compose -f compose.standalone.yaml up --build -d
+```
+
+Die Weboberfläche ist danach standardmäßig unter <http://localhost:8089>
+erreichbar. Baïkal und die Datenbank besitzen absichtlich keinen Host-Port.
+Mit den Development-Werten aus `.env.example` ist die lokale Anmeldung
+`t-demo-m-demo` / `replace-demo-password` verfügbar. Demo-Bootstrap muss in
+Produktionsumgebungen deaktiviert werden.
+
+- [Davyro-Architektur](docs/davyro/architecture.md)
+- [Standalone-Betrieb](docs/davyro/standalone.md)
+- [Upstream-Strategie](UPSTREAM.md)
+- [Standalone-v1-Plan](https://github.com/wannemuellerit/davyro-calendar/issues/37)
+
+Der nachfolgende AgenDAV-Upstream-Text und alle Copyright-/Lizenzhinweise
+bleiben Bestandteil dieses Forks.
+
+---
+
 # AgenDAV - CalDAV web client
 
 [![Maintenance mode](https://img.shields.io/badge/maintenance_mode-%F0%9F%9A%A7-grey.svg?labelColor=orange)](https://github.com/agendav/agendav/#maintenance-mode)

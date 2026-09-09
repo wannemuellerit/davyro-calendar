@@ -7,6 +7,22 @@
       <img src="{{ asset('loading.gif', 'img') }}" alt="">
     </p>
     <ul class="nav navbar-nav navbar-right" id="usermenu">
+        {% if davyro_mail_url %}
+        <li>
+          <a class="davyro-mail" href="{{ davyro_mail_url }}" title="Davyro Mail">
+            <i aria-hidden="true" class="fa fa-lg fa-envelope"></i>
+            <span class="sr-only">Davyro Mail</span>
+          </a>
+        </li>
+        {% endif %}
+        {% if davyro_hub_url %}
+        <li>
+          <a class="davyro-hub" href="{{ davyro_hub_url }}" title="Zurück zum Davyro Hub">
+            <i aria-hidden="true" class="fa fa-lg fa-th"></i>
+            <span class="sr-only">Zurück zum Davyro Hub</span>
+          </a>
+        </li>
+        {% endif %}
         <li>
         <a class="prefs" href="{{ url_for('preferences') }}">
           <i title="{% trans %}labels.preferences{% endtrans %}" class="fa fa-lg fa-wrench"></i>

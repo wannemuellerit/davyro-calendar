@@ -11,6 +11,9 @@
 
 *.phar
 *.sqlite
+.env
+.env.*
+!.env.example
 
 # PHPUnit
 /tests/.phpunit.result.cache
@@ -30,6 +33,7 @@ public/test-calendar.ics
 # Configuration file
 /config/settings*
 !/config/settings.template.php
+!/config/settings.standalone.php
 
 # Development
 /node_modules/
