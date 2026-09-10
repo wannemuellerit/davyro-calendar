@@ -52,3 +52,19 @@ Mindestens folgende Signale werden alarmiert:
 
 Logs dürfen keine Passwörter, vollständigen ICS-Inhalte, Mailtexte,
 Veröffentlichungstokens oder entschlüsselten WebCal-URLs enthalten.
+
+## Reproduzierbarer Lasttest
+
+Das k6-Harness unter [`tests/load`](../../tests/load/README.md) bildet den
+Abnahmefall mit 100 parallelen Benutzern, je vier Postfächern und zwölf
+sichtbaren Kalendern ab. Ein lokaler, vollständig isolierter Smoke-Test prüft
+Script, Authentifizierungsfluss und Metriken:
+
+```bash
+bash tests/load/smoke.sh
+```
+
+Der Smoke-Test ist kein Kapazitätsnachweis. Die p95-Anforderung unter einer
+Sekunde gilt erst als abgenommen, wenn das unveränderte Standardprofil mit
+repräsentativem Datenbestand auf der festgelegten Zielhardware erfolgreich
+durchgelaufen ist und Umgebung sowie k6-Ergebnis archiviert wurden.

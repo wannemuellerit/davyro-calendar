@@ -29,6 +29,8 @@ resources/public/assets/img/jquery-ui/
 resources/public/assets/font/
 resources/public/assets/fullcalendar-locale/
 public/test-calendar.ics
+/tests/load/*.local.json
+/tests/load/results*.json
 
 # Configuration file
 /config/settings*
