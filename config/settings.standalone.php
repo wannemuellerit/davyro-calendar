@@ -108,7 +108,7 @@ return [
     'calendar.subscriptions.allowed_domains' => $subscriptionDomains,
     'calendar.subscriptions.connect_timeout' => 5,
     'calendar.subscriptions.timeout' => 10,
-    'calendar.subscriptions.cache_ttl' => max(30, min(3600, (int) (getenv('CALENDAR_SUBSCRIPTION_CACHE_TTL') ?: 300))),
+    'calendar.subscriptions.cache_ttl' => max(30, min(3600, (int) (getenv('CALENDAR_SUBSCRIPTION_CACHE_TTL') ?: 900))),
     'calendar.subscriptions.max_bytes' => max(65536, min(10485760, (int) (getenv('CALENDAR_SUBSCRIPTION_MAX_BYTES') ?: 2097152))),
     'calendar.subscriptions.max_redirects' => max(0, min(5, (int) (getenv('CALENDAR_SUBSCRIPTION_MAX_REDIRECTS') ?: 3))),
     'defaults.timezone' => 'Europe/Berlin',

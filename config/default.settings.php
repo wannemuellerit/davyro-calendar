@@ -121,7 +121,7 @@ return [
     'calendar.subscriptions.allowed_domains' => [],
     'calendar.subscriptions.connect_timeout' => 5,
     'calendar.subscriptions.timeout' => 10,
-    'calendar.subscriptions.cache_ttl' => 300,
+    'calendar.subscriptions.cache_ttl' => 900,
     'calendar.subscriptions.max_bytes' => 2097152,
     'calendar.subscriptions.max_redirects' => 3,
 

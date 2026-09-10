@@ -51,13 +51,17 @@ final class SubscriptionFeedFetcher
     public function fetch(string $url): string
     {
         $url = $this->normalizeUrl($url);
-        $key = 'ics_'.hash('sha256', $url);
+        $key = $this->cacheKey($url);
         $cached = $this->cache->getItem($key);
         if ($cached->isHit() && is_string($cached->get())) {
             return $cached->get();
         }
 
-        $contents = $this->download($url);
+        $result = $this->download($url);
+        $contents = $result->contents;
+        if ($contents === null) {
+            throw new \RuntimeException('Subscription cache could not be initialized');
+        }
         if (!str_contains(strtoupper($contents), 'BEGIN:VCALENDAR')) {
             throw new \RuntimeException('Subscription response is not an iCalendar feed');
         }
@@ -67,7 +71,24 @@ final class SubscriptionFeedFetcher
         return $contents;
     }
 
-    private function download(string $url): string
+    public function fetchConditional(string $url, ?string $etag = null, ?string $lastModified = null): SubscriptionFetchResult
+    {
+        return $this->download($this->normalizeUrl($url), $etag, $lastModified);
+    }
+
+    public function primeCache(string $url, string $contents, ?int $ttl = null): void
+    {
+        $url = $this->normalizeUrl($url);
+        if ($contents === '' || strlen($contents) > $this->maxBytes
+            || !str_contains(strtoupper($contents), 'BEGIN:VCALENDAR')) {
+            throw new \InvalidArgumentException('Invalid subscription cache contents');
+        }
+        $item = $this->cache->getItem($this->cacheKey($url));
+        $item->set($contents)->expiresAfter(max(30, $ttl ?? $this->ttl));
+        $this->cache->save($item);
+    }
+
+    private function download(string $url, ?string $etag = null, ?string $lastModified = null): SubscriptionFetchResult
     {
         for ($redirect = 0; $redirect <= $this->maxRedirects; $redirect++) {
             $url = $this->normalizeUrl($url);
@@ -77,13 +98,21 @@ final class SubscriptionFeedFetcher
             $port = (int) ($parts['port'] ?? ($scheme === 'https' ? 443 : 80));
             $address = $this->resolvePublicAddress($host);
             $resolveAddress = str_contains($address, ':') ? '['.$address.']' : $address;
+            $headers = [
+                'Accept' => 'text/calendar, application/calendar+json;q=0.5, */*;q=0.1',
+                'User-Agent' => 'Davyro-Calendar/1.0',
+            ];
+            if ($etag !== null && $etag !== '') {
+                $headers['If-None-Match'] = $etag;
+            }
+            if ($lastModified !== null && $lastModified !== '') {
+                $headers['If-Modified-Since'] = $lastModified;
+            }
+
             $response = $this->client->request('GET', $url, [
                 'allow_redirects' => false,
                 'stream' => true,
-                'headers' => [
-                    'Accept' => 'text/calendar, application/calendar+json;q=0.5, */*;q=0.1',
-                    'User-Agent' => 'Davyro-Calendar/1.0',
-                ],
+                'headers' => $headers,
                 'curl' => [CURLOPT_RESOLVE => [$host.':'.$port.':'.$resolveAddress]],
                 'http_errors' => false,
             ]);
@@ -94,6 +123,14 @@ final class SubscriptionFeedFetcher
                 }
                 $url = (string) UriResolver::resolve(new Uri($url), new Uri($response->getHeaderLine('Location')));
                 continue;
+            }
+            if ($status === 304) {
+                return new SubscriptionFetchResult(
+                    true,
+                    null,
+                    $response->getHeaderLine('ETag') ?: $etag,
+                    $response->getHeaderLine('Last-Modified') ?: $lastModified,
+                );
             }
             if ($status !== 200) {
                 throw new \RuntimeException('Subscription server returned HTTP '.$status);
@@ -112,7 +149,16 @@ final class SubscriptionFeedFetcher
                 }
             }
 
-            return $contents;
+            if (!str_contains(strtoupper($contents), 'BEGIN:VCALENDAR')) {
+                throw new \RuntimeException('Subscription response is not an iCalendar feed');
+            }
+
+            return new SubscriptionFetchResult(
+                false,
+                $contents,
+                $response->getHeaderLine('ETag') ?: null,
+                $response->getHeaderLine('Last-Modified') ?: null,
+            );
         }
 
         throw new \RuntimeException('Subscription could not be loaded');
@@ -154,5 +200,10 @@ final class SubscriptionFeedFetcher
         }
 
         return false;
+    }
+
+    private function cacheKey(string $url): string
+    {
+        return 'ics_'.hash('sha256', $url);
     }
 }
