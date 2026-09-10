@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace AgenDAV\Davyro\Import;
 
+use AgenDAV\Session\PasswordCipher;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Cache\Adapter\ArrayAdapter;
 
@@ -55,11 +56,34 @@ final class IcsImportCoordinatorTest extends TestCase
         $coordinator->commit($identity, 'calendar-a', $ticket->token, 'skip', $now->modify('+11 minutes'));
     }
 
+    public function testStagedCalendarContentsAreEncryptedInTheCache(): void
+    {
+        $cache = new ArrayAdapter();
+        $store = new CacheIcsImportStagingStore($cache, new PasswordCipher(str_repeat('k', 32)));
+        $token = str_repeat('a', 43);
+        $identity = new IcsImportIdentity(1, 2, 3, 'session-a');
+        $import = new StagedIcsImport(
+            $identity,
+            'calendar-a',
+            '/calendar-a/',
+            'BEGIN:VCALENDAR:secret-event',
+            str_repeat('f', 64),
+            new \DateTimeImmutable('+10 minutes'),
+        );
+
+        $store->put($token, $import, 600);
+
+        $cached = $cache->getItem('ics_import_'.hash('sha256', $token))->get();
+        self::assertIsString($cached);
+        self::assertStringNotContainsString('secret-event', $cached);
+        self::assertSame($import->contents, $store->get($token)?->contents);
+    }
+
     private function coordinator(): IcsImportCoordinator
     {
         return new IcsImportCoordinator(
             new IcsImportService(new CoordinatorMemoryStore()),
-            new CacheIcsImportStagingStore(new ArrayAdapter()),
+            new CacheIcsImportStagingStore(new ArrayAdapter(), new PasswordCipher(str_repeat('k', 32))),
             new IcsUploadValidator(),
             600,
         );
