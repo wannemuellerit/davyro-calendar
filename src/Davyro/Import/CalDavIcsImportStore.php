@@ -45,7 +45,11 @@ final readonly class CalDavIcsImportStore implements IcsImportStore
             throw new PermissionDenied('The target calendar is read-only');
         }
 
-        $object = CalendarObject::generateOnCalendar($calendar, $uid);
+        // A VEVENT UID is opaque external input and may legally contain path
+        // separators or URI metacharacters. It must never become a CalDAV
+        // resource path. Dedupe still uses the original UID inside VEVENT;
+        // only the server-side object filename is derived from a safe digest.
+        $object = CalendarObject::generateOnCalendar($calendar, hash('sha256', $uid));
         $object->setEvent($this->parser->parse($icalendar));
         $this->client->uploadCalendarObject($object, false);
     }
