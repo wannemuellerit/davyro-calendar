@@ -28,6 +28,27 @@ class ErrorHandler
     ): ResponseInterface {
         $code = $exception instanceof HttpException ? $exception->getCode() : 500;
 
+        $path = $request->getUri()->getPath();
+        $basePath = rtrim((string) ($this->container->has('app.base_path')
+            ? $this->container->get('app.base_path')
+            : ''), '/');
+        if ($basePath !== '' && str_starts_with($path, $basePath.'/')) {
+            $path = substr($path, strlen($basePath));
+        }
+        if (str_starts_with($path, '/api/v1/') || str_starts_with($path, '/internal/davyro/')) {
+            $response = new Response();
+            $response->getBody()->write((string) json_encode([
+                'error' => [
+                    'code' => $code === 401 ? 'unauthenticated' : ($code === 404 ? 'not_found' : 'request_failed'),
+                    'message' => $code >= 500 ? 'Calendar operation failed' : $exception->getMessage(),
+                ],
+            ], JSON_UNESCAPED_SLASHES));
+
+            return $response
+                ->withStatus($code)
+                ->withHeader('Content-Type', 'application/json; charset=utf-8');
+        }
+
         if ($displayErrorDetails) {
             // Class + message + file:line is enough to diagnose in the
             // browser. Stack traces are NOT echoed: if AGENDAV_ENVIRONMENT

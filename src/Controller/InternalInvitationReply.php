@@ -34,10 +34,15 @@ final class InternalInvitationReply
             }
             $principal = trim((string) ($input['principal'] ?? ''));
             $tenantPrefix = trim((string) ($input['tenant_prefix'] ?? ''));
+            $tenantId = (int) ($input['tenant_id'] ?? 0);
+            $userId = (int) ($input['user_id'] ?? 0);
             $organizerEmail = strtolower(trim((string) ($input['email'] ?? '')));
             $mailAccountId = (int) ($input['mail_account_id'] ?? 0);
             $raw = (string) ($input['icalendar'] ?? '');
-            if (!str_starts_with($principal, $tenantPrefix)
+            if ($tenantId < 1
+                || $userId < 1
+                || !hash_equals('t'.$tenantId.'-', $tenantPrefix)
+                || !hash_equals($tenantPrefix.'u'.$userId, $principal)
                 || $mailAccountId < 1
                 || filter_var($organizerEmail, FILTER_VALIDATE_EMAIL) === false
                 || $raw === ''
@@ -52,7 +57,10 @@ final class InternalInvitationReply
                 throw new \RuntimeException('Message is not an iTIP reply');
             }
             $uid = trim((string) ($replyEvent->UID ?? ''));
-            if ($uid === '' || $this->email((string) ($replyEvent->ORGANIZER ?? '')) !== $organizerEmail) {
+            if ($uid === ''
+                || strlen($uid) > 512
+                || $this->email((string) ($replyEvent->ORGANIZER ?? '')) !== $organizerEmail
+            ) {
                 throw new \RuntimeException('Reply does not belong to this organizer');
             }
 
@@ -80,7 +88,7 @@ final class InternalInvitationReply
                 trim((string) ($input['name'] ?? '')) ?: $organizerEmail,
                 $mailAccountId
             );
-            $location = $provisioner->findOwnedCalendarObject($principal, $uid);
+            $location = $provisioner->findOwnedCalendarObject($principal, $uid, $mailAccountId);
             if ($location === null) {
                 throw new \RuntimeException('Original calendar event was not found');
             }

@@ -26,6 +26,7 @@ use AgenDAV\CalDAV\Client;
 use AgenDAV\CalDAV\Resource\Calendar;
 use AgenDAV\Data\Principal;
 use AgenDAV\Davyro\MailboxCalendar;
+use AgenDAV\Davyro\CalendarAccess;
 use Symfony\Component\HttpFoundation\Session\Session;
 
 /**
@@ -55,7 +56,7 @@ class CalendarFinder
     * @param \Symfony\Component\HttpFoundation\Session\Session $session
     * @param \AgenDAV\CalDAV\Client $client
     */
-    public function __construct(Session $session, Client $client)
+    public function __construct(Session $session, Client $client, private ?CalendarAccess $calendarAccess = null)
     {
         $this->sharing_enabled = false;
         $this->client = $client;
@@ -95,16 +96,6 @@ class CalendarFinder
         $calendar_home_set = $this->session->get('calendar_home_set');
 
         $calendars = $this->client->getCalendars($calendar_home_set);
-        $activeMailAccountId = (int) $this->session->get('davyro.active_mail_account_id', 0);
-        if ($activeMailAccountId > 0) {
-            $calendars = array_values(array_filter(
-                $calendars,
-                static fn (Calendar $calendar): bool => MailboxCalendar::belongsTo(
-                    (string) $calendar->getUrl(),
-                    $activeMailAccountId
-                )
-            ));
-        }
         foreach ($calendars as $calendar) {
             $calendar->setOwner($this->current_principal);
         }
@@ -125,7 +116,7 @@ class CalendarFinder
         $subscribed_calendars = $this->getSubscribedCalendars($this->current_principal);
         $calendars = array_merge($calendars, $subscribed_calendars);
 
-        return $calendars;
+        return $this->calendarAccess?->filterCalendars($calendars) ?? $calendars;
     }
 
     /**

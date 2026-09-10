@@ -2,7 +2,7 @@
 set -eu
 
 php -r '
-foreach (["AGENDAV_CSRF_SECRET", "AGENDAV_SESSION_KEY"] as $name) {
+foreach (["AGENDAV_CSRF_SECRET", "AGENDAV_SESSION_KEY", "CALENDAR_SUBSCRIPTION_KEY"] as $name) {
     $value = getenv($name);
     if (!is_string($value) || preg_match("/\\A[0-9a-fA-F]{64}\\z/", $value) !== 1) {
         fwrite(STDERR, "$name must contain exactly 64 hexadecimal characters\n");
@@ -24,5 +24,6 @@ if php /app/docker/davyro/should-mark-legacy-migrations.php; then
 fi
 
 php /app/bin/agendavcli migrations:migrate --no-interaction --allow-no-migration
+php /app/bin/agendavcli webcal:encrypt-legacy-urls --no-interaction
 
 exec apache2-foreground

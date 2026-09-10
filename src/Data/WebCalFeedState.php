@@ -36,6 +36,16 @@ class WebCalFeedState
     #[Column(name: 'subscription_id', type: 'string', length: 255)]
     private string $subscriptionId;
 
+    /**
+     * Authenticated ciphertext only. The remote feed URL (including path and
+     * query credentials) must never be persisted in clear text.
+     */
+    #[Column(name: 'encrypted_url', type: 'text')]
+    private string $encryptedUrl;
+
+    #[Column(name: 'url_hint', type: 'string', length: 255)]
+    private string $urlHint;
+
     #[Column(type: 'string', length: 16)]
     private string $status = self::STATUS_ERROR;
 
@@ -66,9 +76,16 @@ class WebCalFeedState
     #[Column(name: 'suspended_at', type: 'datetime_immutable', nullable: true)]
     private ?\DateTimeImmutable $suspendedAt = null;
 
-    public function __construct(int $tenantId, int $userId, int $mailAccountId, string $subscriptionId)
-    {
-        if ($tenantId < 1 || $userId < 1 || $mailAccountId < 1 || $subscriptionId === '') {
+    public function __construct(
+        int $tenantId,
+        int $userId,
+        int $mailAccountId,
+        string $subscriptionId,
+        string $encryptedUrl,
+        string $urlHint,
+    ) {
+        if ($tenantId < 1 || $userId < 1 || $mailAccountId < 1 || $subscriptionId === ''
+            || $encryptedUrl === '' || $urlHint === '') {
             throw new \InvalidArgumentException('Invalid WebCal subscription owner');
         }
         $this->id = Uuid::generate();
@@ -76,6 +93,8 @@ class WebCalFeedState
         $this->userId = $userId;
         $this->mailAccountId = $mailAccountId;
         $this->subscriptionId = $subscriptionId;
+        $this->encryptedUrl = $encryptedUrl;
+        $this->urlHint = $urlHint;
     }
 
     public function getTenantId(): int
@@ -96,6 +115,16 @@ class WebCalFeedState
     public function getSubscriptionId(): string
     {
         return $this->subscriptionId;
+    }
+
+    public function getEncryptedUrl(): string
+    {
+        return $this->encryptedUrl;
+    }
+
+    public function getUrlHint(): string
+    {
+        return $this->urlHint;
     }
 
     public function getStatus(): string
@@ -146,6 +175,24 @@ class WebCalFeedState
     public function isSuspended(): bool
     {
         return $this->suspendedAt !== null;
+    }
+
+    public function replaceUrl(string $encryptedUrl, string $urlHint): void
+    {
+        if ($encryptedUrl === '' || $urlHint === '') {
+            throw new \InvalidArgumentException('Invalid encrypted WebCal URL');
+        }
+        $this->encryptedUrl = $encryptedUrl;
+        $this->urlHint = $urlHint;
+        $this->status = self::STATUS_ERROR;
+        $this->etag = null;
+        $this->lastModified = null;
+        $this->cachedBody = null;
+        $this->lastAttemptAt = null;
+        $this->lastSuccessAt = null;
+        $this->nextRefreshAt = null;
+        $this->staleUntil = null;
+        $this->lastError = null;
     }
 
     public function refreshSucceeded(

@@ -17,6 +17,7 @@ use Symfony\Component\Cache\Adapter\ArrayAdapter;
 final class WebCalRefreshServiceTest extends TestCase
 {
     private const CALENDAR = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nEND:VCALENDAR\r\n";
+    private const KEY = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
 
     public function testConditionalGetKeepsCachedBodyAndRefreshesStatus(): void
     {
@@ -30,6 +31,7 @@ final class WebCalRefreshServiceTest extends TestCase
         $service = new WebCalRefreshService(
             new SubscriptionFeedFetcher(new Client(['handler' => $stack]), new ArrayAdapter(), [], 900),
             $repository,
+            new WebCalUrlCipher(self::KEY),
             900,
             0,
         );
@@ -39,6 +41,8 @@ final class WebCalRefreshServiceTest extends TestCase
         $second = $service->refresh(1, 2, 3, 'feed-1', 'https://8.8.8.8/calendar.ics', true, $now->modify('+15 minutes'));
 
         self::assertSame(WebCalFeedState::STATUS_CURRENT, $first->state->getStatus());
+        self::assertSame('8.8.8.8', $first->state->getUrlHint());
+        self::assertStringNotContainsString('calendar.ics', $first->state->getEncryptedUrl());
         self::assertSame(self::CALENDAR, $second->contents);
         self::assertSame('"v1"', $history[1]['request']->getHeaderLine('If-None-Match'));
         self::assertSame('Wed, 09 Sep 2026 10:00:00 GMT', $history[1]['request']->getHeaderLine('If-Modified-Since'));
@@ -56,6 +60,7 @@ final class WebCalRefreshServiceTest extends TestCase
         $service = new WebCalRefreshService(
             new SubscriptionFeedFetcher(new Client(['handler' => $stack]), new ArrayAdapter(), [], 900),
             $repository,
+            new WebCalUrlCipher(self::KEY),
             900,
             0,
         );
@@ -69,6 +74,30 @@ final class WebCalRefreshServiceTest extends TestCase
         $expired = $service->refresh(1, 2, 3, 'feed-1', 'https://8.8.8.8/calendar.ics', true, $now->modify('+25 hours'));
         self::assertSame(WebCalFeedState::STATUS_ERROR, $expired->state->getStatus());
         self::assertNull($expired->contents);
+    }
+
+    public function testWorkerRefreshesFeedsThatAreDue(): void
+    {
+        $stack = HandlerStack::create(new MockHandler([
+            new Response(200, ['ETag' => '"v1"'], self::CALENDAR),
+            new Response(304),
+        ]));
+        $repository = new MemoryWebCalStateRepository();
+        $service = new WebCalRefreshService(
+            new SubscriptionFeedFetcher(new Client(['handler' => $stack]), new ArrayAdapter(), [], 900),
+            $repository,
+            new WebCalUrlCipher(self::KEY),
+            900,
+            0,
+        );
+        $now = new \DateTimeImmutable('2026-09-10T12:00:00Z');
+        $service->refresh(1, 2, 3, 'feed-1', 'https://8.8.8.8/calendar.ics', true, $now);
+
+        $result = (new WebCalRefreshWorker($repository, $service))->refreshDue($now->modify('+15 minutes'));
+
+        self::assertSame(1, $result->processed);
+        self::assertSame(1, $result->current);
+        self::assertSame(0, $result->error);
     }
 }
 
@@ -89,6 +118,16 @@ final class MemoryWebCalStateRepository implements WebCalFeedStateRepository
     public function remove(WebCalFeedState $state): void
     {
         $this->state = null;
+    }
+
+    public function due(\DateTimeImmutable $now, int $limit): array
+    {
+        if ($this->state === null || $this->state->isSuspended()
+            || ($this->state->getNextRefreshAt() !== null && $this->state->getNextRefreshAt() > $now)) {
+            return [];
+        }
+
+        return [$this->state];
     }
 
     public function archiveMailbox(int $tenantId, int $userId, int $mailAccountId): int

@@ -34,6 +34,25 @@ final readonly class DoctrineWebCalFeedStateRepository implements WebCalFeedStat
         $this->entityManager->flush();
     }
 
+    public function due(\DateTimeImmutable $now, int $limit): array
+    {
+        if ($limit < 1 || $limit > 1000) {
+            throw new \InvalidArgumentException('WebCal refresh limit must be between 1 and 1000');
+        }
+
+        return $this->entityManager->createQueryBuilder()
+            ->select('state')
+            ->from(WebCalFeedState::class, 'state')
+            ->where('state.suspendedAt IS NULL')
+            ->andWhere('state.nextRefreshAt IS NULL OR state.nextRefreshAt <= :now')
+            ->setParameter('now', $now)
+            ->orderBy('state.nextRefreshAt', 'ASC')
+            ->addOrderBy('state.id', 'ASC')
+            ->setMaxResults($limit)
+            ->getQuery()
+            ->getResult();
+    }
+
     public function archiveMailbox(int $tenantId, int $userId, int $mailAccountId): int
     {
         return $this->entityManager->getConnection()->executeStatement(

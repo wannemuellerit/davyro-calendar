@@ -12,6 +12,7 @@ final readonly class WebCalRefreshService
     public function __construct(
         private SubscriptionFeedFetcher $fetcher,
         private WebCalFeedStateRepository $repository,
+        private WebCalUrlCipher $urlCipher,
         private int $refreshSeconds = 900,
         private int $jitterSeconds = 120,
     ) {
@@ -25,13 +26,33 @@ final readonly class WebCalRefreshService
         int $userId,
         int $mailAccountId,
         string $subscriptionId,
-        string $url,
+        ?string $url = null,
         bool $force = false,
         ?\DateTimeImmutable $now = null,
     ): WebCalRefreshResult {
         $now ??= new \DateTimeImmutable();
-        $state = $this->repository->find($tenantId, $userId, $subscriptionId)
-            ?? new WebCalFeedState($tenantId, $userId, $mailAccountId, $subscriptionId);
+        $state = $this->repository->find($tenantId, $userId, $subscriptionId);
+        if ($state === null) {
+            if ($url === null) {
+                throw new \InvalidArgumentException('A URL is required for a new WebCal subscription');
+            }
+            $url = $this->fetcher->normalizeUrl($url);
+            $state = new WebCalFeedState(
+                $tenantId,
+                $userId,
+                $mailAccountId,
+                $subscriptionId,
+                $this->urlCipher->encrypt($url),
+                $this->urlHint($url),
+            );
+        } elseif ($url !== null) {
+            $url = $this->fetcher->normalizeUrl($url);
+            if (!hash_equals($this->urlCipher->decrypt($state->getEncryptedUrl()), $url)) {
+                $state->replaceUrl($this->urlCipher->encrypt($url), $this->urlHint($url));
+            }
+        } else {
+            $url = $this->urlCipher->decrypt($state->getEncryptedUrl());
+        }
         if ($state->getMailAccountId() !== $mailAccountId) {
             throw new \InvalidArgumentException('WebCal subscription does not belong to this mailbox');
         }
@@ -83,6 +104,22 @@ final readonly class WebCalRefreshService
         }
     }
 
+    public function refreshState(
+        WebCalFeedState $state,
+        bool $force = false,
+        ?\DateTimeImmutable $now = null,
+    ): WebCalRefreshResult {
+        return $this->refresh(
+            $state->getTenantId(),
+            $state->getUserId(),
+            $state->getMailAccountId(),
+            $state->getSubscriptionId(),
+            null,
+            $force,
+            $now,
+        );
+    }
+
     private function jitter(): int
     {
         return $this->jitterSeconds === 0 ? 0 : random_int(0, $this->jitterSeconds);
@@ -99,5 +136,15 @@ final readonly class WebCalRefreshService
             str_contains($message, 'http ') => 'upstream_http_error',
             default => 'fetch_failed',
         };
+    }
+
+    private function urlHint(string $url): string
+    {
+        $host = parse_url($url, PHP_URL_HOST);
+        if (!is_string($host) || $host === '') {
+            throw new \InvalidArgumentException('WebCal URL does not contain a host');
+        }
+
+        return mb_substr(strtolower(rtrim($host, '.')), 0, 255);
     }
 }

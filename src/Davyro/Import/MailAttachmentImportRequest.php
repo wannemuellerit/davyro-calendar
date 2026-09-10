@@ -22,6 +22,7 @@ final readonly class MailAttachmentImportRequest
     /** @param array<string, mixed> $payload */
     public static function fromArray(array $payload): self
     {
+        $source = is_array($payload['source'] ?? null) ? $payload['source'] : [];
         $contents = base64_decode((string) ($payload['ics_base64'] ?? ''), true);
         if ($contents === false) {
             throw new \InvalidArgumentException('ICS attachment is not valid base64');
@@ -32,9 +33,9 @@ final readonly class MailAttachmentImportRequest
             (int) ($payload['user_id'] ?? 0),
             (int) ($payload['mail_account_id'] ?? 0),
             trim((string) ($payload['target_calendar_id'] ?? '')),
-            trim((string) ($payload['message_id'] ?? '')),
-            trim((string) ($payload['attachment_id'] ?? '')),
-            trim((string) ($payload['filename'] ?? '')),
+            trim((string) ($source['message_id'] ?? $payload['message_id'] ?? '')),
+            trim((string) ($source['attachment_id'] ?? $payload['attachment_id'] ?? '')),
+            trim((string) ($source['filename'] ?? $payload['filename'] ?? '')),
             trim((string) ($payload['mime_type'] ?? 'text/calendar')),
             $contents,
         );

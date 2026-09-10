@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace AgenDAV\Davyro;
 
+use AgenDAV\Davyro\WebCal\WebCalReference;
+use AgenDAV\Davyro\WebCal\WebCalReferenceResolver;
 use GuzzleHttp\Client;
 use GuzzleHttp\Psr7\Uri;
 use GuzzleHttp\Psr7\UriResolver;
@@ -18,7 +20,8 @@ final class SubscriptionFeedFetcher
         private readonly array $allowedDomains = [],
         private readonly int $ttl = 300,
         private readonly int $maxBytes = 2097152,
-        private readonly int $maxRedirects = 3
+        private readonly int $maxRedirects = 3,
+        private readonly ?WebCalReferenceResolver $referenceResolver = null,
     ) {
     }
 
@@ -50,6 +53,7 @@ final class SubscriptionFeedFetcher
 
     public function fetch(string $url): string
     {
+        $url = $this->resolveReference($url);
         $url = $this->normalizeUrl($url);
         $key = $this->cacheKey($url);
         $cached = $this->cache->getItem($key);
@@ -73,11 +77,14 @@ final class SubscriptionFeedFetcher
 
     public function fetchConditional(string $url, ?string $etag = null, ?string $lastModified = null): SubscriptionFetchResult
     {
+        $url = $this->resolveReference($url);
+
         return $this->download($this->normalizeUrl($url), $etag, $lastModified);
     }
 
     public function primeCache(string $url, string $contents, ?int $ttl = null): void
     {
+        $url = $this->resolveReference($url);
         $url = $this->normalizeUrl($url);
         if ($contents === '' || strlen($contents) > $this->maxBytes
             || !str_contains(strtoupper($contents), 'BEGIN:VCALENDAR')) {
@@ -205,5 +212,17 @@ final class SubscriptionFeedFetcher
     private function cacheKey(string $url): string
     {
         return 'ics_'.hash('sha256', $url);
+    }
+
+    private function resolveReference(string $url): string
+    {
+        if (WebCalReference::id($url) === null) {
+            return $url;
+        }
+        if ($this->referenceResolver === null) {
+            throw new \RuntimeException('WebCal reference resolver is not configured');
+        }
+
+        return $this->referenceResolver->resolve($url);
     }
 }

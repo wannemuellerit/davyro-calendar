@@ -72,7 +72,7 @@ services:
         condition: service_healthy
       baikal:
         condition: service_healthy
-    environment:
+    environment: &calendar-environment
       AGENDAV_ENVIRONMENT: ${AGENDAV_ENVIRONMENT:-prod}
       AGENDAV_DB_HOST: database
       AGENDAV_DB_NAME: ${AGENDAV_DB_NAME:-davyro_agendav}
@@ -89,8 +89,9 @@ services:
       DAVYRO_MAIL_INTERNAL_URL: ${DAVYRO_MAIL_INTERNAL_URL:-http://portal}
       MAIL_BRIDGE_SHARED_SECRET: ${MAIL_BRIDGE_SHARED_SECRET:?Set MAIL_BRIDGE_SHARED_SECRET}
       CALENDAR_PRINCIPAL_SECRET: ${CALENDAR_PRINCIPAL_SECRET:?Set CALENDAR_PRINCIPAL_SECRET}
+      CALENDAR_SUBSCRIPTION_KEY: ${CALENDAR_SUBSCRIPTION_KEY:?Set CALENDAR_SUBSCRIPTION_KEY}
       CALENDAR_SUBSCRIPTION_ALLOWED_DOMAINS: ${CALENDAR_SUBSCRIPTION_ALLOWED_DOMAINS:-}
-      CALENDAR_SUBSCRIPTION_CACHE_TTL: ${CALENDAR_SUBSCRIPTION_CACHE_TTL:-300}
+      CALENDAR_SUBSCRIPTION_CACHE_TTL: ${CALENDAR_SUBSCRIPTION_CACHE_TTL:-900}
       CALENDAR_SUBSCRIPTION_MAX_BYTES: ${CALENDAR_SUBSCRIPTION_MAX_BYTES:-2097152}
       CALENDAR_SUBSCRIPTION_MAX_REDIRECTS: ${CALENDAR_SUBSCRIPTION_MAX_REDIRECTS:-3}
       DAVYRO_CALENDAR_URL: ${DAVYRO_CALENDAR_URL:-http://localhost:8088/calendar-app}
@@ -119,6 +120,38 @@ services:
       - no-new-privileges:true
     tmpfs:
       - /tmp:size=128m,mode=1777
+
+  webcal-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: ["sh", "/app/docker/davyro/webcal-worker-entrypoint.sh"]
+    depends_on:
+      calendar:
+        condition: service_healthy
+    environment:
+      <<: *calendar-environment
+      WEBCAL_WORKER_INTERVAL_SECONDS: ${WEBCAL_WORKER_INTERVAL_SECONDS:-60}
+      WEBCAL_WORKER_BATCH_SIZE: ${WEBCAL_WORKER_BATCH_SIZE:-100}
+      IMIP_WORKER_BATCH_SIZE: ${IMIP_WORKER_BATCH_SIZE:-100}
+    volumes:
+      - ./config/settings.standalone.php:/app/config/settings.php:ro
+      - agendav-var:/app/var
+    healthcheck:
+      test: ["CMD", "php", "-r", "$$f='/tmp/davyro-webcal-worker-heartbeat'; exit(is_file($$f) && time()-(int) filemtime($$f) < 180 ? 0 : 1);"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+    networks:
+      - calendar-backend
+      - calendar-browser
+      - davyro-mail-internal
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
 
 volumes:
   database-data:

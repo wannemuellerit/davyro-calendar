@@ -34,7 +34,14 @@ class CsrfMiddleware implements MiddlewareInterface
             return $handler->handle($request);
         }
 
-        if (str_starts_with($request->getUri()->getPath(), '/internal/davyro/')) {
+        $path = $request->getUri()->getPath();
+        $basePath = rtrim((string) ($this->container->has('app.base_path')
+            ? $this->container->get('app.base_path')
+            : ''), '/');
+        if ($basePath !== '' && str_starts_with($path, $basePath.'/')) {
+            $path = substr($path, strlen($basePath));
+        }
+        if (str_starts_with($path, '/internal/davyro/') || $path === '/api/v1/session') {
             return $handler->handle($request);
         }
 

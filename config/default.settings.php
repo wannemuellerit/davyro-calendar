@@ -124,6 +124,8 @@ return [
     'calendar.subscriptions.cache_ttl' => 900,
     'calendar.subscriptions.max_bytes' => 2097152,
     'calendar.subscriptions.max_redirects' => 3,
+    // Dedicated 32-byte hex key. Required whenever subscriptions are enabled.
+    'calendar.subscriptions.encryption.key' => null,
 
     // Calendar sharing permissions (deprecated - only relevant when calendar.sharing is enabled)
     // These defaults are only useful for DAViCal (http://wiki.davical.org/index.php/Permissions)

@@ -4,15 +4,16 @@
 Browser
   |
   v
-Davyro Mail/Cypht -- Postfach-Ticket --> Davyro Kalender (eingebettet)
-     ^                                      |
-     |                                      +---- internes CalDAV ----> Baïkal 0.12.1
-     |                                      |                              |
-     +---- SMTP/iMIP <----------------------+                              +---- Baïkal-Datenbank
-     |
-     +---- Cypht erkennt Einladungen ----> Mail-Portal ----> Kalender-API
-
-Davyro Kalender ---- abgesicherter Abruf ----> öffentliche WebCal/ICS-Feeds
+Davyro Mail/Cypht
+  |-- IMAP/SMTP ------------------------------> Kunden-Mailserver
+  |-- Einladungen und Outbox ----------------> Davyro-Mail-Portal
+  `-- native Vue-Kalenderoberfläche
+                |
+                v
+        Davyro Calendar API
+          |-- internes CalDAV ---------------> Baïkal 0.12.1 --> Baïkal-Datenbank
+          |-- sichere interne Bridge --------> Davyro-Mail-Portal --> SMTP/iMIP
+          `-- abgesicherter Abruf ------------> öffentliche WebCal/ICS-Feeds
 ```
 
 ## Sicherheitsgrenzen
@@ -22,6 +23,10 @@ Davyro Kalender ---- abgesicherter Abruf ----> öffentliche WebCal/ICS-Feeds
 - AgenDAV und Baïkal besitzen getrennte Datenbanken und DB-Benutzer.
 - Browser-URLs und interne Container-URLs sind getrennt.
 - App-Navigation ist keine Autorisierung.
+- Browser verwenden nur opake IDs; CalDAV-URLs, Datenbankkennungen und
+  Mailpasswörter werden nicht ausgegeben.
+- Interne Mail-/Kalender-Aufrufe verwenden Bearer-Secret, Timestamp, Nonce und
+  eine Signatur über Methode, exaktes Request-Target und den unveränderten Body.
 - Externe ICS-Abonnements prüfen Ursprungsziel und Weiterleitungen gegen
   private/reservierte IP-Netze, verwenden ausschließlich HTTP(S) auf 80/443,
   begrenzen Zeit und Größe und werden zwischengespeichert.

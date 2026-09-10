@@ -11,6 +11,7 @@ use AgenDAV\Data\WebCalFeedState;
 use AgenDAV\Davyro\CalendarAccess;
 use AgenDAV\Davyro\SubscriptionFeedFetcher;
 use AgenDAV\Davyro\WebCal\WebCalFeedStateRepository;
+use AgenDAV\Davyro\WebCal\WebCalReference;
 use AgenDAV\Davyro\WebCal\WebCalRefreshService;
 use AgenDAV\Repositories\SubscriptionsRepository;
 use AgenDAV\Uuid;
@@ -49,32 +50,28 @@ final class WebCalSubscriptionsController extends ApiController
             $mailboxId = $this->mailboxId($args['mailbox_id'] ?? null);
             $input = $this->body($request);
             $url = $this->fetcher()->normalizeUrl((string) ($input['url'] ?? ''));
-            $subscription = new Subscription();
-            $subscription->setOwner($this->principal()->getUrl());
-            $subscription->setCalendar($url);
-            $subscription->setProperty(self::ID_PROPERTY, Uuid::generate());
-            $subscription->setProperty(self::MAILBOX_PROPERTY, $mailboxId);
-            $subscription->setProperty(Calendar::DISPLAYNAME, $this->name($input['name'] ?? null));
-            $subscription->setProperty(Calendar::COLOR, $this->color($input['color'] ?? '#6875F5'));
-            $this->repository()->save($subscription);
-
+            $subscriptionId = Uuid::generate();
             $result = $this->refresh()->refresh(
                 $this->access()->tenantId(),
                 $this->access()->userId(),
                 $mailboxId,
-                (string) $subscription->getProperty(self::ID_PROPERTY),
+                $subscriptionId,
                 $url,
                 true,
             );
             if ($result->state->getStatus() === WebCalFeedState::STATUS_ERROR) {
-                $this->repository()->remove($subscription);
-                $this->refresh()->remove(
-                    $this->access()->tenantId(),
-                    $this->access()->userId(),
-                    (string) $subscription->getProperty(self::ID_PROPERTY),
-                );
+                $this->refresh()->remove($this->access()->tenantId(), $this->access()->userId(), $subscriptionId);
                 throw new ApiValidation('The WebCal feed could not be loaded');
             }
+
+            $subscription = new Subscription();
+            $subscription->setOwner($this->principal()->getUrl());
+            $subscription->setCalendar(WebCalReference::create($subscriptionId));
+            $subscription->setProperty(self::ID_PROPERTY, $subscriptionId);
+            $subscription->setProperty(self::MAILBOX_PROPERTY, $mailboxId);
+            $subscription->setProperty(Calendar::DISPLAYNAME, $this->name($input['name'] ?? null));
+            $subscription->setProperty(Calendar::COLOR, $this->color($input['color'] ?? '#6875F5'));
+            $this->repository()->save($subscription);
 
             return $this->json($response, ['data' => $this->dto($subscription)], 201);
         });
@@ -87,7 +84,17 @@ final class WebCalSubscriptionsController extends ApiController
             $subscription = $this->find((string) ($args['id'] ?? ''), $mailboxId);
             $input = $this->body($request);
             if (array_key_exists('url', $input)) {
-                $subscription->setCalendar($this->fetcher()->normalizeUrl((string) $input['url']));
+                $result = $this->refresh()->refresh(
+                    $this->access()->tenantId(),
+                    $this->access()->userId(),
+                    $mailboxId,
+                    (string) $subscription->getProperty(self::ID_PROPERTY),
+                    $this->fetcher()->normalizeUrl((string) $input['url']),
+                    true,
+                );
+                if ($result->state->getStatus() === WebCalFeedState::STATUS_ERROR) {
+                    throw new ApiValidation('The WebCal feed could not be loaded');
+                }
             }
             if (array_key_exists('name', $input)) {
                 $subscription->setProperty(Calendar::DISPLAYNAME, $this->name($input['name']));
@@ -96,14 +103,6 @@ final class WebCalSubscriptionsController extends ApiController
                 $subscription->setProperty(Calendar::COLOR, $this->color($input['color']));
             }
             $this->repository()->save($subscription);
-            $this->refresh()->refresh(
-                $this->access()->tenantId(),
-                $this->access()->userId(),
-                $mailboxId,
-                (string) $subscription->getProperty(self::ID_PROPERTY),
-                (string) $subscription->getCalendar(),
-                true,
-            );
 
             return $this->json($response, ['data' => $this->dto($subscription)]);
         });
@@ -132,7 +131,7 @@ final class WebCalSubscriptionsController extends ApiController
                 $this->access()->userId(),
                 $mailboxId,
                 (string) $subscription->getProperty(self::ID_PROPERTY),
-                (string) $subscription->getCalendar(),
+                null,
                 true,
             );
 
@@ -166,8 +165,8 @@ final class WebCalSubscriptionsController extends ApiController
 
         return [
             'id' => $id,
-            'mailbox_id' => (int) $subscription->getProperty(self::MAILBOX_PROPERTY),
-            'url' => $subscription->getCalendar(),
+            'mailbox_id' => $this->access()->publicMailboxId((int) $subscription->getProperty(self::MAILBOX_PROPERTY)),
+            'url_hint' => $state?->getUrlHint(),
             'name' => $subscription->getProperty(Calendar::DISPLAYNAME),
             'color' => $subscription->getProperty(Calendar::COLOR),
             'status' => $state?->getStatus() ?? WebCalFeedState::STATUS_ERROR,
@@ -180,12 +179,12 @@ final class WebCalSubscriptionsController extends ApiController
 
     private function mailboxId(mixed $value): int
     {
-        $id = filter_var($value, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
-        if ($id === false || $this->access()->mailbox((int) $id) === null) {
+        $id = $this->access()->resolveMailboxId($value);
+        if ($id === null) {
             throw new ApiNotFound();
         }
 
-        return (int) $id;
+        return $id;
     }
 
     private function name(mixed $value): string

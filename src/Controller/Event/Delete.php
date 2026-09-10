@@ -23,9 +23,11 @@ namespace AgenDAV\Controller\Event;
 
 use AgenDAV\Controller\JSONController;
 use AgenDAV\CalDAV\Resource\CalendarObject;
-use AgenDAV\Davyro\CalendarBridgeClient;
+use AgenDAV\Data\MailboxCalendarBinding;
 use AgenDAV\Davyro\ImipMessageFactory;
+use AgenDAV\Davyro\Outbox\ImipDispatchOutbox;
 use AgenDAV\Event\RecurrenceId;
+use AgenDAV\Davyro\CalendarAccess;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Symfony\Component\HttpFoundation\ParameterBag;
@@ -47,6 +49,10 @@ class Delete extends JSONController
         ServerRequestInterface $request,
         ResponseInterface $response
     ): ResponseInterface {
+        if ($this->container->has(CalendarAccess::class)
+            && !$this->container->get(CalendarAccess::class)->canWrite((string) $input->get('calendar'))) {
+            return $response->withStatus(404);
+        }
         $calendar = $this->client->getCalendarByUrl($input->get('calendar'));
 
         if (!$calendar->isWritable()) {
@@ -57,20 +63,42 @@ class Delete extends JSONController
         $uid = $input->get('uid');
         $object = $this->client->fetchObjectByUid($calendar, $uid);
         $object->setEtag($input->get('etag'));
-
-        if (!empty($input->get('recurrence_id'))) {
-            return $this->removeInstance($object, $input->get('recurrence_id'), $response);
+        $organizerMailboxId = null;
+        if ($this->container->has(CalendarAccess::class)) {
+            $access = $this->container->get(CalendarAccess::class);
+            if ($access->isDavyroSession()) {
+                $binding = $access->visibleBindingByUrl((string) $input->get('calendar'));
+                $organizer = $object->getEvent()?->getEventInstance()?->getOrganizer()['email'] ?? null;
+                $organizerMailboxId = $access->organizerMailboxId((string) $input->get('calendar'), $organizer);
+                if ($binding?->kind() === MailboxCalendarBinding::KIND_SHARED && $organizerMailboxId === null) {
+                    return $response->withStatus(409);
+                }
+            }
         }
 
-        return $this->removeObject($object, $response);
+        if (!empty($input->get('recurrence_id'))) {
+            return $this->removeInstance($object, $input->get('recurrence_id'), $response, $organizerMailboxId);
+        }
+
+        return $this->removeObject($object, $response, $organizerMailboxId);
     }
 
-    protected function removeObject(CalendarObject $object, ResponseInterface $response): ResponseInterface
-    {
+    protected function removeObject(
+        CalendarObject $object,
+        ResponseInterface $response,
+        ?int $organizerMailboxId = null,
+    ): ResponseInterface {
         $icalendar = $object->getEvent() === null ? null : $object->getRenderedEvent();
+        $eventUid = $object->getEvent() === null ? '' : (string) $object->getEvent()->getUid();
         $this->client->deleteCalendarObject($object);
-        if ($icalendar !== null) {
-            $this->sendMessage($this->container->get(ImipMessageFactory::class)->cancel($icalendar));
+        if ($icalendar !== null && $organizerMailboxId !== null) {
+            $this->sendMessage(
+                $this->container->get(ImipMessageFactory::class)->cancel($icalendar),
+                (string) $object->getCalendar()->getUrl(),
+                $eventUid,
+                'CANCEL',
+                $organizerMailboxId
+            );
         }
         return $this->generateSuccess($response);
     }
@@ -78,7 +106,8 @@ class Delete extends JSONController
     protected function removeInstance(
         CalendarObject $object,
         string $recurrence_id_string,
-        ResponseInterface $response
+        ResponseInterface $response,
+        ?int $organizerMailboxId = null,
     ): ResponseInterface {
         $recurrence_id = RecurrenceId::buildFromString($recurrence_id_string);
 
@@ -87,17 +116,39 @@ class Delete extends JSONController
         $object->setEvent($event);
 
         $caldavResponse = $this->client->uploadCalendarObject($object);
-        $this->sendMessage($this->container->get(ImipMessageFactory::class)->request($event->render()));
+        if ($organizerMailboxId !== null) {
+            $this->sendMessage(
+                $this->container->get(ImipMessageFactory::class)->request($event->render()),
+                (string) $object->getCalendar()->getUrl(),
+                (string) $event->getUid(),
+                'REQUEST',
+                $organizerMailboxId
+            );
+        }
 
         return $this->generateSuccess($response, [
             'etag' => $caldavResponse->getHeaderLine('ETag'),
         ]);
     }
 
-    private function sendMessage(?string $message): void
-    {
-        if ($message !== null) {
-            $this->container->get(CalendarBridgeClient::class)->sendImipMessage($message);
+    private function sendMessage(
+        ?string $message,
+        string $calendarUrl,
+        string $eventUid,
+        string $method,
+        int $organizerMailboxId,
+    ): void {
+        if ($message !== null
+            && $this->container->has(ImipDispatchOutbox::class)
+            && $this->container->has(CalendarAccess::class)
+            && $this->container->get(CalendarAccess::class)->isDavyroSession()
+        ) {
+            $this->container->get(ImipDispatchOutbox::class)->queueAndAttempt(
+                $message,
+                $this->container->get(CalendarAccess::class)->outboundContextForMailbox($organizerMailboxId),
+                $eventUid,
+                $method
+            );
         }
     }
 }

@@ -104,6 +104,54 @@ final class BaikalPrincipalProvisioner
         ]], $displayName, $mailAccountId);
     }
 
+    /**
+     * Provision a Davyro principal that only receives a shared calendar. A
+     * mailbox calendar is deliberately not created until that user's mailbox
+     * lifecycle or SSO session provisions one.
+     */
+    public function provisionPrincipal(string $username, string $email, string $displayName): string
+    {
+        if (preg_match('/^t[1-9][0-9]*-u[1-9][0-9]*$/', $username) !== 1
+            || filter_var($email, FILTER_VALIDATE_EMAIL) === false
+        ) {
+            throw new RuntimeException('Invalid Davyro calendar principal');
+        }
+        $email = strtolower(trim($email));
+        $displayName = trim($displayName);
+        if ($displayName === '' || mb_strlen($displayName) > 160) {
+            $displayName = $email;
+        }
+
+        $password = rtrim(strtr(base64_encode(hash_hmac('sha256', $username, $this->principalSecret, true)), '+/', '-_'), '=');
+        $digest = md5($username . ':' . self::REALM . ':' . $password);
+        $this->pdo->beginTransaction();
+        try {
+            $statement = $this->pdo->prepare(
+                'INSERT INTO users (username, digesta1) VALUES (:username, :digest) '
+                . 'ON DUPLICATE KEY UPDATE digesta1 = VALUES(digesta1)'
+            );
+            $statement->execute(['username' => $username, 'digest' => $digest]);
+
+            $statement = $this->pdo->prepare(
+                'INSERT INTO principals (uri, email, displayname) VALUES (:uri, :email, :displayname) '
+                . 'ON DUPLICATE KEY UPDATE email = VALUES(email), displayname = VALUES(displayname)'
+            );
+            $statement->execute([
+                'uri' => 'principals/'.$username,
+                'email' => $email,
+                'displayname' => $displayName,
+            ]);
+            $this->pdo->commit();
+        } catch (Throwable $exception) {
+            if ($this->pdo->inTransaction()) {
+                $this->pdo->rollBack();
+            }
+            throw $exception;
+        }
+
+        return $password;
+    }
+
     /** @return array{calendar_id:int,created:bool} */
     private function ensureMailboxCalendar(string $principalUri, int $mailAccountId, string $email): array
     {
@@ -114,6 +162,16 @@ final class BaikalPrincipalProvisioner
         $statement->execute(['principal' => $principalUri, 'uri' => $uri]);
         $existingId = $statement->fetchColumn();
         if ($existingId) {
+            $update = $this->pdo->prepare(
+                'UPDATE calendarinstances SET displayname = :displayname, description = :description '
+                .'WHERE id = :id AND principaluri = :principal AND access = 1'
+            );
+            $update->execute([
+                'displayname' => 'Kalender · '.$email,
+                'description' => 'Verpflichtender Davyro-Postfachkalender für '.$email,
+                'id' => (int) $existingId,
+                'principal' => $principalUri,
+            ]);
             return ['calendar_id' => (int) $existingId, 'created' => false];
         }
 
@@ -159,23 +217,32 @@ final class BaikalPrincipalProvisioner
     }
 
     /** @return array{calendar_uri:string,object_uri:string}|null */
-    public function findOwnedCalendarObject(string $username, string $uid): ?array
+    public function findOwnedCalendarObject(string $username, string $uid, ?int $mailAccountId = null): ?array
     {
-        if (preg_match('/^t[1-9][0-9]*-u[1-9][0-9]*$/', $username) !== 1 || $uid === '' || strlen($uid) > 200) {
+        if (preg_match('/^t[1-9][0-9]*-u[1-9][0-9]*$/', $username) !== 1
+            || $uid === ''
+            || strlen($uid) > 512
+            || ($mailAccountId !== null && $mailAccountId < 1)
+        ) {
             throw new RuntimeException('Invalid calendar object lookup');
         }
 
-        $statement = $this->pdo->prepare(
+        $sql =
             'SELECT ci.uri AS calendar_uri, co.uri AS object_uri '
             . 'FROM calendarobjects co '
             . 'INNER JOIN calendarinstances ci ON ci.calendarid = co.calendarid '
-            . 'WHERE ci.principaluri = :principal AND ci.access = 1 AND co.uid = :uid '
-            . 'LIMIT 2'
-        );
-        $statement->execute([
+            . 'WHERE ci.principaluri = :principal AND ci.access = 1 AND co.uid = :uid ';
+        $parameters = [
             'principal' => 'principals/' . $username,
             'uid' => $uid,
-        ]);
+        ];
+        if ($mailAccountId !== null) {
+            $sql .= 'AND (ci.uri = :primary OR ci.uri LIKE :additional) ';
+            $parameters['primary'] = MailboxCalendar::uri($mailAccountId);
+            $parameters['additional'] = MailboxCalendar::customUriPrefix($mailAccountId).'%';
+        }
+        $statement = $this->pdo->prepare($sql.'LIMIT 2');
+        $statement->execute($parameters);
         $rows = $statement->fetchAll(PDO::FETCH_ASSOC);
         if (count($rows) !== 1) {
             return null;
@@ -185,5 +252,54 @@ final class BaikalPrincipalProvisioner
             'calendar_uri' => (string) $rows[0]['calendar_uri'],
             'object_uri' => (string) $rows[0]['object_uri'],
         ];
+    }
+
+    /**
+     * Permanently removes all CalDAV data belonging to one Davyro mailbox.
+     * This is intentionally the only non-provisioning direct Baikal database
+     * operation and is called only after the application retention gate.
+     */
+    public function purgeMailboxCalendars(string $username, int $mailAccountId): int
+    {
+        if (preg_match('/^t[1-9][0-9]*-u[1-9][0-9]*$/', $username) !== 1 || $mailAccountId < 1) {
+            throw new RuntimeException('Invalid mailbox purge context');
+        }
+        $principal = 'principals/'.$username;
+        $primary = MailboxCalendar::uri($mailAccountId);
+        $additional = MailboxCalendar::customUriPrefix($mailAccountId).'%';
+
+        $this->pdo->beginTransaction();
+        try {
+            $statement = $this->pdo->prepare(
+                'SELECT calendarid FROM calendarinstances '
+                .'WHERE principaluri = :principal AND access = 1 AND (uri = :primary OR uri LIKE :additional)'
+            );
+            $statement->execute([
+                'principal' => $principal,
+                'primary' => $primary,
+                'additional' => $additional,
+            ]);
+            $ids = array_values(array_unique(array_map('intval', $statement->fetchAll(PDO::FETCH_COLUMN))));
+
+            foreach ($ids as $calendarId) {
+                $deleteObjects = $this->pdo->prepare('DELETE FROM calendarobjects WHERE calendarid = :id');
+                $deleteObjects->execute(['id' => $calendarId]);
+                $deleteInstances = $this->pdo->prepare('DELETE FROM calendarinstances WHERE calendarid = :id');
+                $deleteInstances->execute(['id' => $calendarId]);
+                $deleteChanges = $this->pdo->prepare('DELETE FROM calendarchanges WHERE calendarid = :id');
+                $deleteChanges->execute(['id' => $calendarId]);
+                $deleteCalendar = $this->pdo->prepare('DELETE FROM calendars WHERE id = :id');
+                $deleteCalendar->execute(['id' => $calendarId]);
+            }
+
+            $this->pdo->commit();
+
+            return count($ids);
+        } catch (Throwable $exception) {
+            if ($this->pdo->inTransaction()) {
+                $this->pdo->rollBack();
+            }
+            throw $exception;
+        }
     }
 }

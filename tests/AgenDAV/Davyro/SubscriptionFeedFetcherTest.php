@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace AgenDAV\Davyro;
 
+use AgenDAV\Davyro\WebCal\WebCalReference;
+use AgenDAV\Davyro\WebCal\WebCalReferenceResolver;
 use GuzzleHttp\Client;
 use GuzzleHttp\Handler\MockHandler;
 use GuzzleHttp\HandlerStack;
@@ -46,6 +48,30 @@ final class SubscriptionFeedFetcherTest extends TestCase
 
         self::assertSame($calendar, $fetcher->fetch('https://8.8.8.8/feed.ics'));
         self::assertSame($calendar, $fetcher->fetch('https://8.8.8.8/feed.ics'));
+    }
+
+    public function testOpaqueStoredReferenceIsResolvedOnlyOnTheServer(): void
+    {
+        $calendar = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nEND:VCALENDAR\r\n";
+        $client = new Client(['handler' => HandlerStack::create(new MockHandler([
+            new Response(200, [], $calendar),
+        ]))]);
+        $resolver = new class implements WebCalReferenceResolver {
+            public function resolve(string $reference): string
+            {
+                return 'https://8.8.8.8/private/token.ics';
+            }
+        };
+        $fetcher = new SubscriptionFeedFetcher(
+            $client,
+            new ArrayAdapter(),
+            referenceResolver: $resolver,
+        );
+
+        self::assertSame(
+            $calendar,
+            $fetcher->fetch(WebCalReference::create('123e4567-e89b-12d3-a456-426614174000')),
+        );
     }
 
     /** @param Response[] $responses @param string[] $allowedDomains */

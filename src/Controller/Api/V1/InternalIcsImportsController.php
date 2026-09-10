@@ -29,7 +29,7 @@ final class InternalIcsImportsController extends ApiController
                 $import->calendarId,
             ) ?? throw new ApiNotFound();
             $ticket = $this->coordinator()->preview(
-                $this->identity($import->tenantId, $import->userId, $import->mailAccountId, $import->messageId, $import->attachmentId),
+                $this->identity($import->tenantId, $import->userId, $import->mailAccountId),
                 $import->calendarId,
                 $calendarUrl,
                 $import->filename,
@@ -50,13 +50,11 @@ final class InternalIcsImportsController extends ApiController
             $userId = (int) ($input['user_id'] ?? 0);
             $mailAccountId = (int) ($input['mail_account_id'] ?? 0);
             $calendarId = trim((string) ($input['target_calendar_id'] ?? ''));
-            $messageId = trim((string) ($input['message_id'] ?? ''));
-            $attachmentId = trim((string) ($input['attachment_id'] ?? ''));
             if ($this->resolver()->resolve($tenantId, $userId, $mailAccountId, $calendarId) === null) {
                 throw new ApiNotFound();
             }
             $result = $this->coordinator()->commit(
-                $this->identity($tenantId, $userId, $mailAccountId, $messageId, $attachmentId),
+                $this->identity($tenantId, $userId, $mailAccountId),
                 $calendarId,
                 trim((string) ($input['import_token'] ?? '')),
                 trim((string) ($input['duplicate_strategy'] ?? 'skip')),
@@ -66,17 +64,13 @@ final class InternalIcsImportsController extends ApiController
         });
     }
 
-    private function identity(int $tenantId, int $userId, int $mailAccountId, string $messageId, string $attachmentId): IcsImportIdentity
+    private function identity(int $tenantId, int $userId, int $mailAccountId): IcsImportIdentity
     {
-        if ($messageId === '' || $attachmentId === '') {
-            throw new ApiValidation('message_id and attachment_id are required');
-        }
-
         return new IcsImportIdentity(
             $tenantId,
             $userId,
             $mailAccountId,
-            'mail-attachment:'.hash('sha256', $messageId."\0".$attachmentId),
+            'internal-mail-import',
         );
     }
 

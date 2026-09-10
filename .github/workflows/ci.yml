@@ -43,3 +43,9 @@ jobs:
 
       - name: Run test suite
         run: ./vendor/bin/phpunit -c tests/phpunit.xml
+
+      - name: Validate operational scripts
+        run: sh -n scripts/backup.sh scripts/verify-backup.sh scripts/restore.sh
+
+      - name: Validate standalone Compose contract
+        run: docker compose --env-file .env.example -f compose.standalone.yaml config --quiet

@@ -26,6 +26,7 @@ use AgenDAV\CalDAV\Resource\CalendarObject;
 use AgenDAV\Event\FullCalendarEvent;
 use AgenDAV\Data\Transformer\FullCalendarEventTransformer;
 use AgenDAV\Data\Serializer\PlainSerializer;
+use AgenDAV\Davyro\CalendarAccess;
 use League\Fractal\Resource\Item;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
@@ -49,6 +50,10 @@ class GetBase extends Listing
         ResponseInterface $response
     ): ResponseInterface {
         $calendar = new Calendar($input->get('calendar'));
+        if ($this->container->has(CalendarAccess::class)
+            && !$this->container->get(CalendarAccess::class)->canRead((string) $input->get('calendar'))) {
+            return $response->withStatus(404);
+        }
         $timezone = new \DateTimeZone($input->get('timezone'));
         $uid = $input->get('uid');
 

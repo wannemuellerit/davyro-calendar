@@ -25,9 +25,9 @@ use AgenDAV\Uuid;
 use AgenDAV\DateHelper;
 use AgenDAV\Controller\JSONController;
 use AgenDAV\CalDAV\Resource\CalendarObject;
-use AgenDAV\Davyro\CalendarBridgeClient;
 use AgenDAV\Davyro\ImipMessageFactory;
-use AgenDAV\Davyro\MailboxCalendar;
+use AgenDAV\Davyro\CalendarAccess;
+use AgenDAV\Davyro\Outbox\ImipDispatchOutbox;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Symfony\Component\HttpFoundation\ParameterBag;
@@ -61,16 +61,19 @@ class Save extends JSONController
 
         $organizer = strtolower(trim((string) $input->get('organizer_email', '')));
         $session = $this->container->has('session') ? $this->container->get('session') : null;
-        $activeMailbox = $this->activeMailbox();
-        if ($activeMailbox !== null && $organizer !== '' && $organizer !== $activeMailbox['email']) {
+        $mailbox = $this->mailboxForCalendar((string) $input->get('calendar'));
+        if ($mailbox !== null && $organizer !== '' && $organizer !== $mailbox['email']) {
             return false;
         }
-        if ($activeMailbox !== null && !$this->calendarIsAllowed((string) $input->get('calendar'), $activeMailbox['id'])) {
-            return false;
-        }
-        if ($activeMailbox !== null && $this->isModification($input)
-            && !$this->calendarIsAllowed((string) $input->get('original_calendar'), $activeMailbox['id'])) {
-            return false;
+        if ($this->container->has(CalendarAccess::class)) {
+            $access = $this->container->get(CalendarAccess::class);
+            if ($access->isDavyroSession() && !$access->canWrite((string) $input->get('calendar'))) {
+                return false;
+            }
+            if ($access->isDavyroSession() && $this->isModification($input)
+                && !$access->canWrite((string) $input->get('original_calendar'))) {
+                return false;
+            }
         }
 
         return $this->parseAttendees((string) $input->get('attendees_input', '')) !== null;
@@ -83,7 +86,7 @@ class Save extends JSONController
     ): ResponseInterface {
         $this->builder = $this->container->get('event.builder');
         $session = $this->container->has('session') ? $this->container->get('session') : null;
-        $activeMailbox = $this->activeMailbox();
+        $activeMailbox = $this->mailboxForCalendar((string) $input->get('calendar'));
         $organizer = strtolower(trim((string) $input->get('organizer_email', '')));
         if ($activeMailbox !== null) {
             $organizer = $activeMailbox['email'];
@@ -100,32 +103,23 @@ class Save extends JSONController
     }
 
     /** @return array{id:int,email:string}|null */
-    private function activeMailbox(): ?array
+    private function mailboxForCalendar(string $calendarUrl): ?array
     {
-        $session = $this->container->has('session') ? $this->container->get('session') : null;
-        $activeId = (int) ($session?->get('davyro.active_mail_account_id', 0) ?? 0);
-        foreach ((array) ($session?->get('davyro.mailboxes', []) ?? []) as $mailbox) {
-            if (is_array($mailbox) && (int) ($mailbox['id'] ?? 0) === $activeId) {
-                return [
-                    'id' => $activeId,
-                    'email' => strtolower((string) ($mailbox['email'] ?? '')),
-                ];
-            }
+        if (!$this->container->has(CalendarAccess::class)) {
+            return null;
         }
-
-        return null;
-    }
-
-    private function calendarIsAllowed(string $calendarUrl, int $mailAccountId): bool
-    {
-        $home = (string) $this->container->get('session')->get('calendar_home_set', '');
-        if ($home !== '' && str_starts_with($calendarUrl, $home)) {
-            return MailboxCalendar::belongsTo($calendarUrl, $mailAccountId);
+        $access = $this->container->get(CalendarAccess::class);
+        if (!$access->isDavyroSession()) {
+            return null;
         }
+        $mailAccountId = $access->ownedBindingByUrl($calendarUrl)?->mailAccountId()
+            ?? $access->selectedMailboxId();
+        $mailbox = $access->mailbox($mailAccountId);
 
-        // Shared calendars belong to another principal and are still valid
-        // destinations when Baïkal grants write access.
-        return true;
+        return $mailbox === null ? null : [
+            'id' => $mailAccountId,
+            'email' => strtolower((string) ($mailbox['email'] ?? '')),
+        ];
     }
 
     /** @return array<int, array{email:string}>|null */
@@ -167,11 +161,16 @@ class Save extends JSONController
         $event = $this->builder->createEvent($uid);
 
         $instance = $this->builder->createEventInstanceWithInput($event, $input->all());
-
+        $instance->touch();
         $event->storeInstance($instance);
         $object->setEvent($event);
         $this->client->uploadCalendarObject($object);
-        $this->sendInvitation($event->render());
+        $this->sendInvitation(
+            (string) $event->getUid(),
+            $event->render(),
+            (string) $input->get('calendar'),
+            $this->mailboxForCalendar((string) $input->get('calendar'))['id'] ?? null
+        );
 
         return $this->generateSuccess($response, [$input->get('calendar')]);
     }
@@ -189,8 +188,25 @@ class Save extends JSONController
         $uid = $input->get('uid');
         $source_object = $this->client->fetchObjectByUid($source_calendar, $uid);
         $event = $source_object->getEvent();
-
+        $organizerMailboxId = null;
+        if ($this->container->has(CalendarAccess::class)) {
+            $access = $this->container->get(CalendarAccess::class);
+            if ($access->isDavyroSession()) {
+                $storedOrganizer = $event->getEventInstance()?->getOrganizer();
+                $organizerMailboxId = $access->organizerMailboxId(
+                    (string) $input->get('original_calendar'),
+                    $storedOrganizer['email'] ?? null
+                );
+                if ($organizerMailboxId === null) {
+                    return $response->withStatus(409);
+                }
+                $input->set('organizer', $storedOrganizer);
+            }
+        }
+        $previousIcalendar = $event->render();
+        $previousAttendees = array_column($event->getEventInstance()?->getAttendees() ?? [], 'email');
         $instance = $this->builder->createEventInstanceWithInput($event, $input->all());
+        $instance->touch();
         $event->storeInstance($instance);
 
         $moving = $source_calendar->getUrl() !== $destination_calendar->getUrl();
@@ -207,7 +223,23 @@ class Save extends JSONController
 
         $object->setEvent($event);
         $this->client->uploadCalendarObject($object);
-        $this->sendInvitation($event->render());
+        $removedAttendees = array_values(array_diff(
+            array_map('strtolower', $previousAttendees),
+            array_map('strtolower', array_column($instance->getAttendees(), 'email'))
+        ));
+        $this->sendCancellationForRemoved(
+            (string) $event->getUid(),
+            $previousIcalendar,
+            (string) $input->get('calendar'),
+            $removedAttendees,
+            $organizerMailboxId
+        );
+        $this->sendInvitation(
+            (string) $event->getUid(),
+            $event->render(),
+            (string) $input->get('calendar'),
+            $organizerMailboxId
+        );
 
         if ($moving) {
             $this->client->deleteCalendarObject($source_object);
@@ -220,11 +252,57 @@ class Save extends JSONController
         return $this->generateSuccess($response, [$input->get('calendar')]);
     }
 
-    private function sendInvitation(string $icalendar): void
-    {
+    private function sendInvitation(
+        string $eventUid,
+        string $icalendar,
+        string $calendarUrl,
+        ?int $organizerMailboxId,
+    ): void {
+        if (!$this->canSendDavyroInvitation()) {
+            return;
+        }
         $message = $this->container->get(ImipMessageFactory::class)->request($icalendar);
         if ($message !== null) {
-            $this->container->get(CalendarBridgeClient::class)->sendImipMessage($message);
+            $this->container->get(ImipDispatchOutbox::class)->queueAndAttempt(
+                $message,
+                $organizerMailboxId === null
+                    ? $this->container->get(CalendarAccess::class)->outboundContextForCalendar($calendarUrl)
+                    : $this->container->get(CalendarAccess::class)->outboundContextForMailbox($organizerMailboxId),
+                $eventUid,
+                'REQUEST'
+            );
         }
+    }
+
+    /** @param string[] $removed */
+    private function sendCancellationForRemoved(
+        string $eventUid,
+        string $icalendar,
+        string $calendarUrl,
+        array $removed,
+        ?int $organizerMailboxId,
+    ): void {
+        if (!$this->canSendDavyroInvitation()) {
+            return;
+        }
+        $message = $this->container->get(ImipMessageFactory::class)->cancelFor($icalendar, $removed);
+        if ($message !== null) {
+            $this->container->get(ImipDispatchOutbox::class)->queueAndAttempt(
+                $message,
+                $organizerMailboxId === null
+                    ? $this->container->get(CalendarAccess::class)->outboundContextForCalendar($calendarUrl)
+                    : $this->container->get(CalendarAccess::class)->outboundContextForMailbox($organizerMailboxId),
+                $eventUid,
+                'CANCEL'
+            );
+        }
+    }
+
+    private function canSendDavyroInvitation(): bool
+    {
+        return $this->container->has(ImipMessageFactory::class)
+            && $this->container->has(ImipDispatchOutbox::class)
+            && $this->container->has(CalendarAccess::class)
+            && $this->container->get(CalendarAccess::class)->isDavyroSession();
     }
 }

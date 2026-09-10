@@ -60,6 +60,8 @@ final class Version20260910010000 extends AbstractMigration
             $table->addColumn('user_id', 'bigint', ['unsigned' => true]);
             $table->addColumn('mail_account_id', 'bigint', ['unsigned' => true]);
             $table->addColumn('subscription_id', 'string', ['length' => 255]);
+            $table->addColumn('encrypted_url', 'text');
+            $table->addColumn('url_hint', 'string', ['length' => 255]);
             $table->addColumn('status', 'string', ['length' => 16]);
             $table->addColumn('etag', 'string', ['length' => 512, 'notnull' => false]);
             $table->addColumn('last_modified', 'string', ['length' => 128, 'notnull' => false]);

@@ -14,6 +14,9 @@ interface WebCalFeedStateRepository
 
     public function remove(WebCalFeedState $state): void;
 
+    /** @return WebCalFeedState[] */
+    public function due(\DateTimeImmutable $now, int $limit): array;
+
     public function archiveMailbox(int $tenantId, int $userId, int $mailAccountId): int;
 
     public function restoreMailbox(int $tenantId, int $userId, int $mailAccountId): int;

@@ -27,6 +27,7 @@ use AgenDAV\CalDAV\Resource\Calendar;
 use AgenDAV\DateHelper;
 use AgenDAV\Event\FullCalendarEvent;
 use AgenDAV\Data\Transformer\FullCalendarEventTransformer;
+use AgenDAV\Davyro\CalendarAccess;
 use AgenDAV\Data\Serializer\PlainSerializer;
 use League\Fractal\Resource\Collection;
 use Psr\Container\ContainerInterface;
@@ -65,6 +66,12 @@ class Listing extends JSONController
         $calendar = new Calendar($input->get('calendar'));
         if ($input->getBoolean('is_subscribed') === true) {
             $calendar->setSubscribed(true);
+        }
+        if ($this->container->has(CalendarAccess::class) && !$this->container->get(CalendarAccess::class)->canRead(
+            (string) $input->get('calendar'),
+            $input->getBoolean('is_subscribed')
+        )) {
+            return $response->withStatus(404);
         }
         $timezone = new \DateTimeZone($input->get('timezone'));
         $start = DateHelper::fullcalendarToDateTime($input->get('start'), $timezone);

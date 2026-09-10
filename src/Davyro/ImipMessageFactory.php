@@ -19,6 +19,46 @@ final class ImipMessageFactory
         return $this->build($icalendar, 'CANCEL');
     }
 
+    /** @param string[] $recipients */
+    public function cancelFor(string $icalendar, array $recipients): ?string
+    {
+        $wanted = [];
+        foreach ($recipients as $recipient) {
+            $email = strtolower(trim((string) $recipient));
+            if (filter_var($email, FILTER_VALIDATE_EMAIL) === false) {
+                throw new \InvalidArgumentException('Invalid cancellation recipient');
+            }
+            $wanted[$email] = true;
+        }
+        if ($wanted === []) {
+            return null;
+        }
+
+        $calendar = $this->calendar($icalendar, 'CANCEL');
+        $event = $calendar->VEVENT;
+        $organizer = $event === null ? null : $this->email((string) ($event->ORGANIZER ?? ''));
+        if ($event === null || $organizer === null) {
+            return null;
+        }
+        $actual = [];
+        foreach ($calendar->select('VEVENT') as $component) {
+            $component->STATUS = 'CANCELLED';
+            foreach ($component->select('ATTENDEE') as $attendee) {
+                $email = $this->email((string) $attendee);
+                if ($email === null || !isset($wanted[$email])) {
+                    $component->remove($attendee);
+                    continue;
+                }
+                $actual[$email] = $email;
+            }
+        }
+        if ($actual === []) {
+            return null;
+        }
+
+        return $this->message($calendar, 'CANCEL', $organizer, array_values($actual));
+    }
+
     public function reply(string $icalendar, string $attendeeEmail): string
     {
         $email = strtolower(trim($attendeeEmail));

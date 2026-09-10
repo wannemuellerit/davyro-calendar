@@ -30,6 +30,8 @@ use AgenDAV\Data\Share;
 use AgenDAV\Data\Helper\SharesDiff;
 use AgenDAV\Repositories\SubscriptionsRepository;
 use AgenDAV\Davyro\MailboxCalendar;
+use AgenDAV\Davyro\CalendarAccess;
+use AgenDAV\Repositories\MailboxCalendarBindingsRepository;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Symfony\Component\HttpFoundation\ParameterBag;
@@ -52,10 +54,13 @@ class Save extends JSONController
         ResponseInterface $response
     ): ResponseInterface {
         $url = $input->get('calendar');
-        $mailAccountId = (int) $this->container->get('session')->get('davyro.active_mail_account_id', 0);
-        if ($mailAccountId > 0 && $input->getBoolean('is_owned') === true
-            && !MailboxCalendar::belongsTo((string) $url, $mailAccountId)) {
+        $access = $this->container->get(CalendarAccess::class);
+        if ($access->isDavyroSession()
+            && !$access->canRead((string) $url, $input->getBoolean('is_subscribed'))) {
             return $this->generateException($response, 'Der Kalender gehört nicht zum ausgewählten Postfach.', 403);
+        }
+        if ($access->isDavyroSession() && !$input->getBoolean('is_subscribed') && !$access->canWrite((string) $url)) {
+            return $this->generateException($response, 'Der Kalender ist schreibgeschützt.', 403);
         }
         $calendar = new Calendar($url, [
             Calendar::DISPLAYNAME => $input->get('displayname'),
@@ -156,6 +161,15 @@ class Save extends JSONController
     protected function updateCalDAV(Calendar $calendar, ResponseInterface $response): ResponseInterface
     {
         $this->client->updateCalendar($calendar);
+        $access = $this->container->get(CalendarAccess::class);
+        $binding = $access->ownedBindingByUrl((string) $calendar->getUrl());
+        if ($binding !== null) {
+            $this->container->get(MailboxCalendarBindingsRepository::class)->updateCalendar(
+                $binding,
+                (string) $calendar->getProperty(Calendar::DISPLAYNAME),
+                (string) $calendar->getProperty(Calendar::COLOR)
+            );
+        }
         return $this->generateSuccess($response);
     }
 

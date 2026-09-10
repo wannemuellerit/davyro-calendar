@@ -34,6 +34,21 @@ final class ImipMessageFactoryTest extends TestCase
         $this->assertSame('CANCELLED', (string) $calendar->VEVENT->STATUS);
     }
 
+    public function test_cancel_for_only_targets_removed_attendees(): void
+    {
+        $message = (new ImipMessageFactory())->cancelFor($this->invitation(), ['beta@example.test']);
+
+        $this->assertNotNull($message);
+        $this->assertStringContainsString("To: beta@example.test\r\n", $message);
+        $this->assertStringNotContainsString("To: alpha@example.test", $message);
+        $calendar = $this->calendarPart($message);
+        $this->assertSame('CANCEL', (string) $calendar->METHOD);
+        $this->assertSame('CANCELLED', (string) $calendar->VEVENT->STATUS);
+        $attendees = $calendar->VEVENT->select('ATTENDEE');
+        $this->assertCount(1, $attendees);
+        $this->assertSame('mailto:beta@example.test', (string) $attendees[0]);
+    }
+
     public function test_reply_is_sent_from_matching_attendee_to_organizer(): void
     {
         $message = (new ImipMessageFactory())->reply($this->invitation(), 'alpha@example.test');

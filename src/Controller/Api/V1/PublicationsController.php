@@ -33,7 +33,7 @@ final class PublicationsController extends ApiController
 
     public function create(ServerRequestInterface $request, ResponseInterface $response, array $args): ResponseInterface
     {
-        return $this->guarded($response, function () use ($request, $response, $args): ResponseInterface {
+        return $this->guarded($response, function () use ($response, $args): ResponseInterface {
             $binding = $this->binding((string) ($args['id'] ?? ''));
             $issued = $this->service()->create(
                 $this->access()->tenantId(),
@@ -42,13 +42,13 @@ final class PublicationsController extends ApiController
                 $binding->id(),
             );
 
-            return $this->json($response, ['data' => $this->dto($request, $issued)], 201);
+            return $this->json($response, ['data' => $this->dto($issued)], 201);
         });
     }
 
     public function rotate(ServerRequestInterface $request, ResponseInterface $response, array $args): ResponseInterface
     {
-        return $this->guarded($response, function () use ($request, $response, $args): ResponseInterface {
+        return $this->guarded($response, function () use ($response, $args): ResponseInterface {
             $binding = $this->binding((string) ($args['id'] ?? ''));
             $issued = $this->service()->rotate(
                 $this->access()->tenantId(),
@@ -57,7 +57,7 @@ final class PublicationsController extends ApiController
                 $binding->id(),
             );
 
-            return $this->json($response, ['data' => $this->dto($request, $issued)], 201);
+            return $this->json($response, ['data' => $this->dto($issued)], 201);
         });
     }
 
@@ -84,13 +84,20 @@ final class PublicationsController extends ApiController
     }
 
     /** @return array<string, mixed> */
-    private function dto(ServerRequestInterface $request, \AgenDAV\Davyro\Publication\IssuedPublication $issued): array
+    private function dto(\AgenDAV\Davyro\Publication\IssuedPublication $issued): array
     {
-        $basePath = rtrim((string) ($this->container->has('app.base_path') ? $this->container->get('app.base_path') : ''), '/');
-        $path = $basePath.'/public/calendars/'.$issued->token.'.ics';
-        $uri = $request->getUri();
-        $httpsUrl = $uri->getScheme().'://'.$uri->getAuthority().$path;
-        $webcalUrl = 'webcal://'.$uri->getAuthority().$path;
+        $configuredBase = rtrim((string) $this->container->get('davyro.calendar_url'), '/');
+        $parts = parse_url($configuredBase);
+        $environment = (string) $this->container->get('environment');
+        if (!is_array($parts) || !isset($parts['scheme'], $parts['host'])
+            || ($environment !== 'dev' && strtolower((string) $parts['scheme']) !== 'https')) {
+            throw new \RuntimeException('A trusted HTTPS Davyro calendar URL is required for public links');
+        }
+        $path = '/public/calendars/'.$issued->token.'.ics';
+        $httpsUrl = $configuredBase.$path;
+        $authority = (string) $parts['host'].(isset($parts['port']) ? ':'.$parts['port'] : '');
+        $basePath = rtrim((string) ($parts['path'] ?? ''), '/');
+        $webcalUrl = 'webcal://'.$authority.$basePath.$path;
 
         return [
             'id' => $issued->publication->getId(),

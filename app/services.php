@@ -383,13 +383,18 @@ return [
             $c->get('calendar.subscriptions.allowed_domains'),
             $c->get('calendar.subscriptions.cache_ttl'),
             $c->get('calendar.subscriptions.max_bytes'),
-            $c->get('calendar.subscriptions.max_redirects')
+            $c->get('calendar.subscriptions.max_redirects'),
+            $c->get(\AgenDAV\Davyro\WebCal\WebCalReferenceResolver::class)
         );
     },
 
     // Calendar finder
     'calendar.finder' => function (ContainerInterface $c) {
-        $finder = new \AgenDAV\CalendarFinder($c->get('session'), $c->get('caldav.client'));
+        $finder = new \AgenDAV\CalendarFinder(
+            $c->get('session'),
+            $c->get('caldav.client'),
+            $c->get(\AgenDAV\Davyro\CalendarAccess::class)
+        );
         if ($c->get('calendar.sharing') === true) {
             $finder->setSharesRepository($c->get('shares.repository'));
         }
@@ -407,7 +412,18 @@ return [
         $c->get('davyro.mail_internal_url'),
         $c->get('davyro.bridge_shared_secret')
     ),
+    \AgenDAV\Davyro\Outbox\ImipDispatchOutbox::class => fn (ContainerInterface $c) =>
+        new \AgenDAV\Davyro\Outbox\ImipDispatchOutbox(
+            $c->get('db'),
+            $c->get(\AgenDAV\Davyro\CalendarBridgeClient::class)
+        ),
     \AgenDAV\Davyro\ImipMessageFactory::class => \DI\create(\AgenDAV\Davyro\ImipMessageFactory::class),
+    \AgenDAV\Davyro\BrowserIdCodec::class => fn (ContainerInterface $c) => new \AgenDAV\Davyro\BrowserIdCodec(
+        $c->get('davyro.bridge_shared_secret')
+    ),
+    \AgenDAV\Davyro\BrowserEventReference::class => fn (ContainerInterface $c) => new \AgenDAV\Davyro\BrowserEventReference(
+        $c->get(\AgenDAV\Davyro\BrowserIdCodec::class)
+    ),
     \AgenDAV\Davyro\BaikalPrincipalProvisioner::class => function (ContainerInterface $c) {
         $options = $c->get('davyro.baikal_db');
         $pdo = new \PDO(
@@ -422,4 +438,102 @@ return [
             $c->get('davyro.principal_secret')
         );
     },
+    \AgenDAV\Repositories\MailboxCalendarBindingsRepository::class => fn (ContainerInterface $c) =>
+        new \AgenDAV\Repositories\MailboxCalendarBindingsRepository($c->get('db')),
+    \AgenDAV\Davyro\CalendarAccess::class => fn (ContainerInterface $c) => new \AgenDAV\Davyro\CalendarAccess(
+        $c->get('session'),
+        $c->get(\AgenDAV\Repositories\MailboxCalendarBindingsRepository::class),
+        $c->get('shares.repository'),
+        $c->get('subscriptions.repository'),
+        $c->get(\AgenDAV\Davyro\BrowserIdCodec::class)
+    ),
+    \AgenDAV\Davyro\DavyroSessionAuthenticator::class => fn (ContainerInterface $c) =>
+        new \AgenDAV\Davyro\DavyroSessionAuthenticator($c),
+    \AgenDAV\Davyro\Import\IcsImportStore::class => fn (ContainerInterface $c) =>
+        new \AgenDAV\Davyro\Import\CalDavIcsImportStore(
+            $c->get('caldav.client'),
+            $c->get('event.parser')
+        ),
+    \AgenDAV\Davyro\Import\IcsImportService::class => fn (ContainerInterface $c) =>
+        new \AgenDAV\Davyro\Import\IcsImportService($c->get(\AgenDAV\Davyro\Import\IcsImportStore::class)),
+    \AgenDAV\Davyro\Import\IcsImportStagingStore::class => fn (ContainerInterface $c) =>
+        new \AgenDAV\Davyro\Import\CacheIcsImportStagingStore(
+            new \Symfony\Component\Cache\Adapter\FilesystemAdapter(
+                'ics_imports',
+                600,
+                __DIR__.'/../var/cache/ics-imports'
+            ),
+            $c->get('password.cipher')
+        ),
+    \AgenDAV\Davyro\Import\IcsUploadValidator::class => \DI\create(\AgenDAV\Davyro\Import\IcsUploadValidator::class),
+    \AgenDAV\Davyro\Import\IcsImportCoordinator::class => fn (ContainerInterface $c) =>
+        new \AgenDAV\Davyro\Import\IcsImportCoordinator(
+            $c->get(\AgenDAV\Davyro\Import\IcsImportService::class),
+            $c->get(\AgenDAV\Davyro\Import\IcsImportStagingStore::class),
+            $c->get(\AgenDAV\Davyro\Import\IcsUploadValidator::class),
+            600
+        ),
+    \AgenDAV\Davyro\Import\InternalImportTargetResolver::class => fn (ContainerInterface $c) =>
+        new \AgenDAV\Davyro\Import\DbalInternalImportTargetResolver($c->get('db')),
+    \AgenDAV\Davyro\Availability\MailboxAvailabilityRepository::class => fn (ContainerInterface $c) =>
+        new \AgenDAV\Davyro\Availability\DoctrineMailboxAvailabilityRepository($c->get('orm')),
+    \AgenDAV\Davyro\Availability\BusyCalendarRegistry::class => fn (ContainerInterface $c) =>
+        new \AgenDAV\Davyro\Availability\CalendarBindingBusyRegistry(
+            $c->get(\AgenDAV\Repositories\MailboxCalendarBindingsRepository::class)
+        ),
+    \AgenDAV\Davyro\Availability\AvailabilityService::class => fn (ContainerInterface $c) =>
+        new \AgenDAV\Davyro\Availability\AvailabilityService(
+            $c->get(\AgenDAV\Davyro\Availability\MailboxAvailabilityRepository::class),
+            $c->get(\AgenDAV\Davyro\Availability\BusyCalendarRegistry::class)
+        ),
+    \AgenDAV\Davyro\Publication\CalendarPublicationRepository::class => fn (ContainerInterface $c) =>
+        new \AgenDAV\Davyro\Publication\DoctrineCalendarPublicationRepository($c->get('orm')),
+    \AgenDAV\Davyro\Publication\CalendarPublicationService::class => fn (ContainerInterface $c) =>
+        new \AgenDAV\Davyro\Publication\CalendarPublicationService(
+            $c->get(\AgenDAV\Davyro\Publication\CalendarPublicationRepository::class)
+        ),
+    \AgenDAV\Davyro\Publication\CalendarPublicationRenderer::class =>
+        \DI\create(\AgenDAV\Davyro\Publication\CalendarPublicationRenderer::class),
+    \AgenDAV\Davyro\Publication\PublishedCalendarSource::class => fn (ContainerInterface $c) =>
+        new \AgenDAV\Davyro\Publication\BaikalPublishedCalendarSource(
+            $c->get('db'),
+            new \GuzzleHttp\Client([
+                'connect_timeout' => $c->get('caldav.connect.timeout'),
+                'timeout' => $c->get('caldav.response.timeout'),
+                'verify' => $c->get('caldav.certificate.verify'),
+            ]),
+            $c->get('caldav.baseurl'),
+            $c->get('davyro.principal_secret')
+        ),
+    \AgenDAV\Davyro\WebCal\WebCalFeedStateRepository::class => fn (ContainerInterface $c) =>
+        new \AgenDAV\Davyro\WebCal\DoctrineWebCalFeedStateRepository($c->get('orm')),
+    \AgenDAV\Davyro\WebCal\WebCalUrlCipher::class => fn (ContainerInterface $c) =>
+        new \AgenDAV\Davyro\WebCal\WebCalUrlCipher(
+            (string) $c->get('calendar.subscriptions.encryption.key')
+        ),
+    \AgenDAV\Davyro\WebCal\WebCalReferenceResolver::class => fn (ContainerInterface $c) =>
+        new \AgenDAV\Davyro\WebCal\SessionWebCalReferenceResolver(
+            $c->get(\AgenDAV\Davyro\CalendarAccess::class),
+            $c->get(\AgenDAV\Davyro\WebCal\WebCalFeedStateRepository::class),
+            $c->get(\AgenDAV\Davyro\WebCal\WebCalUrlCipher::class)
+        ),
+    \AgenDAV\Davyro\WebCal\WebCalRefreshService::class => fn (ContainerInterface $c) =>
+        new \AgenDAV\Davyro\WebCal\WebCalRefreshService(
+            $c->get(\AgenDAV\Davyro\SubscriptionFeedFetcher::class),
+            $c->get(\AgenDAV\Davyro\WebCal\WebCalFeedStateRepository::class),
+            $c->get(\AgenDAV\Davyro\WebCal\WebCalUrlCipher::class),
+            900,
+            120
+        ),
+    \AgenDAV\Davyro\WebCal\WebCalRefreshWorker::class => fn (ContainerInterface $c) =>
+        new \AgenDAV\Davyro\WebCal\WebCalRefreshWorker(
+            $c->get(\AgenDAV\Davyro\WebCal\WebCalFeedStateRepository::class),
+            $c->get(\AgenDAV\Davyro\WebCal\WebCalRefreshService::class)
+        ),
+    \AgenDAV\Davyro\WebCal\LegacyWebCalEncryptor::class => fn (ContainerInterface $c) =>
+        new \AgenDAV\Davyro\WebCal\LegacyWebCalEncryptor(
+            $c->get('db'),
+            $c->get(\AgenDAV\Davyro\SubscriptionFeedFetcher::class),
+            $c->get(\AgenDAV\Davyro\WebCal\WebCalUrlCipher::class)
+        ),
 ];
