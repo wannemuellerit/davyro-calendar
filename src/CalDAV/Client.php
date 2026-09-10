@@ -26,6 +26,7 @@ use \AgenDAV\Data\Principal;
 use \AgenDAV\CalDAV\Share\ACL;
 use \AgenDAV\CalDAV\Filter\Uid;
 use \AgenDAV\CalDAV\Filter\TimeRange;
+use AgenDAV\Davyro\SubscriptionFeedFetcher;
 
 class Client
 {
@@ -48,7 +49,8 @@ class Client
     public function __construct(
         \AgenDAV\Http\Client $http_client,
         \AgenDAV\XML\Toolkit $xml_toolkit,
-        \AgenDAV\Event\Parser $event_parser
+        \AgenDAV\Event\Parser $event_parser,
+        protected ?SubscriptionFeedFetcher $subscription_feed_fetcher = null
     ) {
         $this->http_client = $http_client;
         $this->xml_toolkit = $xml_toolkit;
@@ -493,11 +495,10 @@ class Client
     */
     public function get($url)
     {
-        // Use a plain client without CalDAV credentials to avoid leaking
-        // the user's password to external ICS feed hosts.
-        $response = (new \GuzzleHttp\Client())->request('GET', $url);
-
-        $contents = (string)$response->getBody();
+        if ($this->subscription_feed_fetcher === null) {
+            throw new \RuntimeException('Subscription feed fetcher is not configured');
+        }
+        $contents = $this->subscription_feed_fetcher->fetch($url);
 
         $result = [
             $url=>[

@@ -90,6 +90,9 @@ $config = [
         'timezone' => 'Europe/Berlin',
         'card_enabled' => false,
         'cal_enabled' => true,
+        // Davyro sends iMIP messages itself so the selected connected SMTP
+        // account can be used. Leaving this empty disables Baikal's single-
+        // sender IMipPlugin and avoids duplicate invitations.
         'invite_from' => '',
         'dav_auth_type' => 'Basic',
         'admin_passwordhash' => hash('sha256', 'admin:' . $realm . ':' . requiredEnvironment('BAIKAL_ADMIN_PASSWORD')),

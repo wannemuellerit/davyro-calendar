@@ -25,6 +25,7 @@ use AgenDAV\Repositories\SharesRepository;
 use AgenDAV\CalDAV\Client;
 use AgenDAV\CalDAV\Resource\Calendar;
 use AgenDAV\Data\Principal;
+use AgenDAV\Davyro\MailboxCalendar;
 use Symfony\Component\HttpFoundation\Session\Session;
 
 /**
@@ -94,6 +95,16 @@ class CalendarFinder
         $calendar_home_set = $this->session->get('calendar_home_set');
 
         $calendars = $this->client->getCalendars($calendar_home_set);
+        $activeMailAccountId = (int) $this->session->get('davyro.active_mail_account_id', 0);
+        if ($activeMailAccountId > 0) {
+            $calendars = array_values(array_filter(
+                $calendars,
+                static fn (Calendar $calendar): bool => MailboxCalendar::belongsTo(
+                    (string) $calendar->getUrl(),
+                    $activeMailAccountId
+                )
+            ));
+        }
         foreach ($calendars as $calendar) {
             $calendar->setOwner($this->current_principal);
         }

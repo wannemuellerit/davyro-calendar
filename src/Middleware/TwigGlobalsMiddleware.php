@@ -45,6 +45,7 @@ class TwigGlobalsMiddleware implements MiddlewareInterface
         );
 
         $session = $this->container->get('session');
+        $twig->addGlobal('davyro_embedded', (bool) $session->get('davyro.embedded', false));
         $twig->addGlobal('displayname', $session->has('displayname') ? $session->get('displayname') : '');
         $twig->addGlobal('calendar_subscriptions', $this->container->get('calendar.subscriptions'));
         $twig->addGlobal(

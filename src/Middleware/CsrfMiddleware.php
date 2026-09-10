@@ -34,6 +34,10 @@ class CsrfMiddleware implements MiddlewareInterface
             return $handler->handle($request);
         }
 
+        if (str_starts_with($request->getUri()->getPath(), '/internal/davyro/')) {
+            return $handler->handle($request);
+        }
+
         // Token can be supplied either via the X-CSRF-Token header (preferred for
         // JSON / XHR requests) or via the _token field of a form-encoded body.
         $headerToken = $request->getHeaderLine('X-CSRF-Token');

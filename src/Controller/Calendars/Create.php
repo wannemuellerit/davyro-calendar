@@ -29,6 +29,8 @@ use AgenDAV\Data\Principal;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Symfony\Component\HttpFoundation\ParameterBag;
+use AgenDAV\Davyro\SubscriptionFeedFetcher;
+use AgenDAV\Davyro\MailboxCalendar;
 
 class Create extends JSONController
 {
@@ -48,7 +50,11 @@ class Create extends JSONController
         ResponseInterface $response
     ): ResponseInterface {
         $calendar_home_set = $this->container->get('session')->get('calendar_home_set');
-        $url = $calendar_home_set . Uuid::generate();
+        $mailAccountId = (int) $this->container->get('session')->get('davyro.active_mail_account_id', 0);
+        $calendarUri = $mailAccountId > 0
+            ? MailboxCalendar::customUriPrefix($mailAccountId).Uuid::generate()
+            : Uuid::generate();
+        $url = $calendar_home_set . $calendarUri;
 
         $subscriptions_repository = $this->container->get('subscriptions.repository');
         $user_principal_url = $this->container->get('session')->get('principal_url');
@@ -56,9 +62,11 @@ class Create extends JSONController
 
         if ($input->getBoolean('is_subscribed') === true) {
             // If the calendar is a subscription, we save it in the database
-            $feedUrl = $input->get('url');
-            $scheme = parse_url($feedUrl, PHP_URL_SCHEME);
-            if (!in_array($scheme, ['http', 'https'], true)) {
+            try {
+                $fetcher = $this->container->get(SubscriptionFeedFetcher::class);
+                $feedUrl = $fetcher->normalizeUrl((string) $input->get('url'));
+                $fetcher->fetch($feedUrl);
+            } catch (\Throwable) {
                 return $this->generateException($response, $this->container->get('translator')->trans('messages.error_invalidinput'));
             }
 

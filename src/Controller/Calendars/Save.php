@@ -29,6 +29,7 @@ use AgenDAV\Data\Principal;
 use AgenDAV\Data\Share;
 use AgenDAV\Data\Helper\SharesDiff;
 use AgenDAV\Repositories\SubscriptionsRepository;
+use AgenDAV\Davyro\MailboxCalendar;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Symfony\Component\HttpFoundation\ParameterBag;
@@ -51,6 +52,11 @@ class Save extends JSONController
         ResponseInterface $response
     ): ResponseInterface {
         $url = $input->get('calendar');
+        $mailAccountId = (int) $this->container->get('session')->get('davyro.active_mail_account_id', 0);
+        if ($mailAccountId > 0 && $input->getBoolean('is_owned') === true
+            && !MailboxCalendar::belongsTo((string) $url, $mailAccountId)) {
+            return $this->generateException($response, 'Der Kalender gehört nicht zum ausgewählten Postfach.', 403);
+        }
         $calendar = new Calendar($url, [
             Calendar::DISPLAYNAME => $input->get('displayname'),
             Calendar::COLOR => $input->get('calendar_color'),
@@ -95,6 +101,12 @@ class Save extends JSONController
             $post_shares['with'] = $shares['with'] ?? [];
             $post_shares['rw'] = $shares['rw'] ?? [];
         }
+        if (!$this->sharesBelongToCurrentTenant($post_shares['with'])) {
+            return $this->generateException(
+                $response,
+                $this->container->get('translator')->trans('messages.error_shareunknownusers')
+            );
+        }
         $current_shares = $shares_repository->getSharesOnCalendar($calendar);
         $new_shares = Shares::buildFromInput(
             $post_shares['with'],
@@ -121,6 +133,24 @@ class Save extends JSONController
 
         $this->client->applyACL($calendar, $acl);
         return $this->updateCalDAV($calendar, $response);
+    }
+
+    /** @param string[] $principalUrls */
+    private function sharesBelongToCurrentTenant(array $principalUrls): bool
+    {
+        $tenantPrefix = (string) $this->container->get('session')->get('davyro.tenant_prefix', '');
+        if ($tenantPrefix === '' && $principalUrls !== []) {
+            return false;
+        }
+        foreach ($principalUrls as $principalUrl) {
+            $path = parse_url((string) $principalUrl, PHP_URL_PATH);
+            $username = is_string($path) ? basename(rtrim($path, '/')) : '';
+            if ($username === '' || !str_starts_with($username, $tenantPrefix)) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     protected function updateCalDAV(Calendar $calendar, ResponseInterface $response): ResponseInterface

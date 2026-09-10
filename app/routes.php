@@ -1,9 +1,12 @@
 <?php
 
 use AgenDAV\Controller\Authentication;
+use AgenDAV\Controller\DavyroAuthentication;
 use AgenDAV\Controller\Calendars;
 use AgenDAV\Controller\Event;
 use AgenDAV\Controller\JavaScriptCode;
+use AgenDAV\Controller\InternalInvitationResponse;
+use AgenDAV\Controller\InternalInvitationReply;
 use AgenDAV\Controller\Preferences;
 use AgenDAV\Controller\Principals;
 use AgenDAV\Middleware\AuthMiddleware;
@@ -20,6 +23,9 @@ return function (App $app) {
     $app->get('/login', Authentication::class . ':loginAction')->setName('login');
     $app->post('/login', Authentication::class . ':loginAction');
     $app->get('/logout', Authentication::class . ':logoutAction')->setName('logout');
+    $app->get('/auth/davyro', DavyroAuthentication::class)->setName('auth.davyro');
+    $app->post('/internal/davyro/invitations/respond', InternalInvitationResponse::class);
+    $app->post('/internal/davyro/invitations/reply', InternalInvitationReply::class);
 
     // Authenticated routes
     $app->group('', function (RouteCollectorProxy $g) use ($container) {

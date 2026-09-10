@@ -23,6 +23,7 @@ COPY . /app
 RUN composer install --no-dev --prefer-dist --no-interaction --no-progress \
     && npm install --legacy-peer-deps --no-audit --no-fund \
     && npm run build:templates \
+    && npm run build:copy \
     && npm run build:css \
     && npm run build:js \
     && rm -rf node_modules \

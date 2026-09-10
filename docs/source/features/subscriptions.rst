@@ -17,19 +17,12 @@ Subscriptions are disabled by default. Enable them in ``config/settings.php``::
 
     $app['calendar.subscriptions'] = true;
 
-.. warning::
-
-   When a user adds a subscription, AgenDAV fetches the iCal URL from the
-   **server**, not from the user's browser. This creates an SSRF risk: a
-   malicious user could supply an internal URL and probe services on your
-   network that are normally unreachable from the outside.
-
-   Only enable subscriptions if:
-
-   - your AgenDAV instance is not reachable by untrusted users, **or**
-   - AgenDAV runs in an isolated network where it cannot reach internal services.
-
-   Only ``http://`` and ``https://`` URLs are accepted.
+The Davyro fork validates every target and redirect before fetching it.
+Private and reserved addresses, credentials in URLs and ports other than 80
+and 443 are rejected. Responses are subject to connection, total-size and
+redirect limits and are cached. ``webcal://`` links are converted to HTTPS.
+Administrators can optionally set a domain allowlist through
+``calendar.subscriptions.allowed_domains``.
 
 Adding a subscription (user)
 -----------------------------
@@ -40,8 +33,8 @@ Adding a subscription (user)
 4. Choose a display name and colour.
 5. Click **Save**.
 
-The feed appears in the sidebar immediately. Its events are refreshed each
-time the calendar view loads.
+The feed appears in the sidebar immediately. Its events are refreshed after
+the configured cache interval.
 
 Example: subscribing to a Nextcloud shared calendar
 ----------------------------------------------------

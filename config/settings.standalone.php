@@ -77,7 +77,13 @@ if ($demoUserEnabled) {
     }
 }
 
+$subscriptionDomains = array_values(array_filter(array_map(
+    static fn (string $domain): string => strtolower(trim($domain)),
+    explode(',', (string) (getenv('CALENDAR_SUBSCRIPTION_ALLOWED_DOMAINS') ?: ''))
+)));
+
 return [
+    'app.base_path' => rtrim((string) (getenv('AGENDAV_BASE_PATH') ?: ''), '/'),
     'site.title' => 'Davyro Kalender',
     'site.footer' => 'Davyro Kalender · basierend auf AgenDAV',
     'db.options' => [
@@ -97,9 +103,14 @@ return [
     'caldav.connect.timeout' => 5,
     'caldav.response.timeout' => 15,
     'caldav.certificate.verify' => true,
-    'calendar.sharing' => false,
-    // Remains disabled until the SSRF-safe fetcher and cache issues are done.
-    'calendar.subscriptions' => false,
+    'calendar.sharing' => true,
+    'calendar.subscriptions' => true,
+    'calendar.subscriptions.allowed_domains' => $subscriptionDomains,
+    'calendar.subscriptions.connect_timeout' => 5,
+    'calendar.subscriptions.timeout' => 10,
+    'calendar.subscriptions.cache_ttl' => max(30, min(3600, (int) (getenv('CALENDAR_SUBSCRIPTION_CACHE_TTL') ?: 300))),
+    'calendar.subscriptions.max_bytes' => max(65536, min(10485760, (int) (getenv('CALENDAR_SUBSCRIPTION_MAX_BYTES') ?: 2097152))),
+    'calendar.subscriptions.max_redirects' => max(0, min(5, (int) (getenv('CALENDAR_SUBSCRIPTION_MAX_REDIRECTS') ?: 3))),
     'defaults.timezone' => 'Europe/Berlin',
     'defaults.language' => 'de_DE',
     'defaults.time_format' => '24',
@@ -113,4 +124,13 @@ return [
     'davyro.mail_url' => $trustedBrowserUrl('DAVYRO_MAIL_URL'),
     'davyro.hub_url' => $trustedBrowserUrl('DAVYRO_HUB_URL'),
     'davyro.demo_credentials' => $demoCredentials,
+    'davyro.mail_internal_url' => $requiredEnvironment('DAVYRO_MAIL_INTERNAL_URL'),
+    'davyro.bridge_shared_secret' => $requiredEnvironment('MAIL_BRIDGE_SHARED_SECRET'),
+    'davyro.principal_secret' => $requiredEnvironment('CALENDAR_PRINCIPAL_SECRET'),
+    'davyro.baikal_db' => [
+        'host' => $requiredEnvironment('BAIKAL_DB_HOST'),
+        'name' => $requiredEnvironment('BAIKAL_DB_NAME'),
+        'user' => $requiredEnvironment('BAIKAL_DB_USER'),
+        'password' => $requiredEnvironment('BAIKAL_DB_PASSWORD'),
+    ],
 ];

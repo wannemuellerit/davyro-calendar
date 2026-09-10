@@ -1,0 +1,158 @@
+<?php
+
+declare(strict_types=1);
+
+namespace AgenDAV\Davyro;
+
+use GuzzleHttp\Client;
+use GuzzleHttp\Psr7\Uri;
+use GuzzleHttp\Psr7\UriResolver;
+use Psr\Cache\CacheItemPoolInterface;
+
+final class SubscriptionFeedFetcher
+{
+    /** @param string[] $allowedDomains */
+    public function __construct(
+        private readonly Client $client,
+        private readonly CacheItemPoolInterface $cache,
+        private readonly array $allowedDomains = [],
+        private readonly int $ttl = 300,
+        private readonly int $maxBytes = 2097152,
+        private readonly int $maxRedirects = 3
+    ) {
+    }
+
+    public function normalizeUrl(string $url): string
+    {
+        $url = trim($url);
+        if (str_starts_with(strtolower($url), 'webcal://')) {
+            $url = 'https://'.substr($url, 9);
+        }
+        $parts = parse_url($url);
+        if (!is_array($parts) || !isset($parts['scheme'], $parts['host'])) {
+            throw new \InvalidArgumentException('Invalid subscription URL');
+        }
+        $scheme = strtolower((string) $parts['scheme']);
+        $host = strtolower(rtrim((string) $parts['host'], '.'));
+        if (!in_array($scheme, ['http', 'https'], true) || $host === '' || isset($parts['user']) || isset($parts['pass'])) {
+            throw new \InvalidArgumentException('Unsupported subscription URL');
+        }
+        $port = (int) ($parts['port'] ?? ($scheme === 'https' ? 443 : 80));
+        if (!in_array($port, [80, 443], true)) {
+            throw new \InvalidArgumentException('Unsupported subscription port');
+        }
+        if ($this->allowedDomains !== [] && !$this->isAllowedDomain($host)) {
+            throw new \InvalidArgumentException('Subscription domain is not allowed');
+        }
+
+        return (string) new Uri($url);
+    }
+
+    public function fetch(string $url): string
+    {
+        $url = $this->normalizeUrl($url);
+        $key = 'ics_'.hash('sha256', $url);
+        $cached = $this->cache->getItem($key);
+        if ($cached->isHit() && is_string($cached->get())) {
+            return $cached->get();
+        }
+
+        $contents = $this->download($url);
+        if (!str_contains(strtoupper($contents), 'BEGIN:VCALENDAR')) {
+            throw new \RuntimeException('Subscription response is not an iCalendar feed');
+        }
+        $cached->set($contents)->expiresAfter(max(30, $this->ttl));
+        $this->cache->save($cached);
+
+        return $contents;
+    }
+
+    private function download(string $url): string
+    {
+        for ($redirect = 0; $redirect <= $this->maxRedirects; $redirect++) {
+            $url = $this->normalizeUrl($url);
+            $parts = parse_url($url);
+            $host = (string) $parts['host'];
+            $scheme = strtolower((string) $parts['scheme']);
+            $port = (int) ($parts['port'] ?? ($scheme === 'https' ? 443 : 80));
+            $address = $this->resolvePublicAddress($host);
+            $resolveAddress = str_contains($address, ':') ? '['.$address.']' : $address;
+            $response = $this->client->request('GET', $url, [
+                'allow_redirects' => false,
+                'stream' => true,
+                'headers' => [
+                    'Accept' => 'text/calendar, application/calendar+json;q=0.5, */*;q=0.1',
+                    'User-Agent' => 'Davyro-Calendar/1.0',
+                ],
+                'curl' => [CURLOPT_RESOLVE => [$host.':'.$port.':'.$resolveAddress]],
+                'http_errors' => false,
+            ]);
+            $status = $response->getStatusCode();
+            if (in_array($status, [301, 302, 303, 307, 308], true)) {
+                if ($redirect === $this->maxRedirects || !$response->hasHeader('Location')) {
+                    throw new \RuntimeException('Too many subscription redirects');
+                }
+                $url = (string) UriResolver::resolve(new Uri($url), new Uri($response->getHeaderLine('Location')));
+                continue;
+            }
+            if ($status !== 200) {
+                throw new \RuntimeException('Subscription server returned HTTP '.$status);
+            }
+            $length = (int) $response->getHeaderLine('Content-Length');
+            if ($length > $this->maxBytes) {
+                throw new \RuntimeException('Subscription feed is too large');
+            }
+
+            $body = $response->getBody();
+            $contents = '';
+            while (!$body->eof()) {
+                $contents .= $body->read(min(65536, $this->maxBytes + 1 - strlen($contents)));
+                if (strlen($contents) > $this->maxBytes) {
+                    throw new \RuntimeException('Subscription feed is too large');
+                }
+            }
+
+            return $contents;
+        }
+
+        throw new \RuntimeException('Subscription could not be loaded');
+    }
+
+    private function resolvePublicAddress(string $host): string
+    {
+        if (filter_var($host, FILTER_VALIDATE_IP)) {
+            $addresses = [$host];
+        } else {
+            $records = dns_get_record($host, DNS_A | DNS_AAAA);
+            $addresses = [];
+            foreach (is_array($records) ? $records : [] as $record) {
+                $address = $record['ip'] ?? $record['ipv6'] ?? null;
+                if (is_string($address)) {
+                    $addresses[] = $address;
+                }
+            }
+        }
+        if ($addresses === []) {
+            throw new \RuntimeException('Subscription domain could not be resolved');
+        }
+        foreach (array_unique($addresses) as $address) {
+            if (filter_var($address, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false) {
+                throw new \RuntimeException('Private subscription targets are blocked');
+            }
+        }
+
+        return $addresses[0];
+    }
+
+    private function isAllowedDomain(string $host): bool
+    {
+        foreach ($this->allowedDomains as $domain) {
+            $domain = strtolower(ltrim(rtrim(trim($domain), '.'), '.'));
+            if ($domain !== '' && ($host === $domain || str_ends_with($host, '.'.$domain))) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+}

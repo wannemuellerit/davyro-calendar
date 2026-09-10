@@ -56,6 +56,12 @@ interface EventInstance
     */
     public function getDescription();
 
+    /** @return array{email:string,name:string}|null */
+    public function getOrganizer();
+
+    /** @return array<int, array{email:string,name:string,status:string,role:string,rsvp:bool}> */
+    public function getAttendees();
+
     /**
     * Get the CLASS property of this event
     *
@@ -160,6 +166,11 @@ interface EventInstance
     * @param string $description
     */
     public function setDescription($description);
+
+    public function setOrganizer(?string $email, string $name = '');
+
+    /** @param array<int, array{email:string,name?:string,status?:string,role?:string,rsvp?:bool}> $attendees */
+    public function setAttendees(array $attendees);
 
     /**
     * Set the CLASS property for this event

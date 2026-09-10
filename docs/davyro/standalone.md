@@ -37,10 +37,30 @@ bei `DAVYRO_ALLOW_INSECURE_LOCAL_LINKS=true` akzeptiert.
 AgenDAV verwendet dagegen ausschließlich
 `BAIKAL_INTERNAL_BASE_URL=http://baikal/dav.php/` für interne CalDAV-Aufrufe.
 
+Davyro Mail öffnet den Kalender über ein signiertes, einmalig verwendbares
+Launch-Ticket. Davyro Kalender legt den technischen Baïkal-Principal beim
+ersten Aufruf automatisch an und übernimmt Mandant, Benutzer sowie alle
+verbundenen Absenderadressen in die Sitzung. Ein separates Kalenderpasswort
+oder eine zweite Anmeldung gibt es in diesem Ablauf nicht.
+
+Termine mit Teilnehmenden werden als iCalendar/iTIP-Nachrichten über das
+verbundene SMTP-Postfach des Organisators versendet. Eingehende `REQUEST`-,
+`REPLY`- und `CANCEL`-Abläufe verwenden dieselbe interne, mit Bearer-Secret
+geschützte Mail-Brücke. Angenommene Termine, Aktualisierungen und Absagen
+werden in Baïkal gespeichert beziehungsweise entfernt.
+
+## WebCal/ICS-Abonnements
+
+Abonnements sind im Davyro-Standalone-Profil aktiviert. `webcal://` wird nach
+`https://` normalisiert. Jeder Zielhost und jede Weiterleitung wird erneut
+aufgelöst; private, reservierte und nicht standardmäßige Ziele werden
+blockiert. Abrufe haben Zeit-, Größen- und Weiterleitungslimits und werden
+fünf Minuten zwischengespeichert. Mit
+`CALENDAR_SUBSCRIPTION_ALLOWED_DOMAINS` kann der Administrator zusätzlich eine
+kommagetrennte Positivliste festlegen.
+
 ## Noch nicht produktionsfertig
 
-- kein Davyro-SSO-Consumer und keine Hub-Anbindung,
-- noch keine mandantenbegrenzte Freigabeoberfläche,
-- WebCal/ICS aus Sicherheitsgründen deaktiviert,
 - kein öffentlicher direkter CalDAV-Endpunkt,
-- Backup/Restore und Monitoring noch nicht vollständig umgesetzt.
+- die abschließende Navigation und Rechtevergabe im Davyro Hub selbst,
+- Backup/Restore, Monitoring und produktive Secret-Verteilung.

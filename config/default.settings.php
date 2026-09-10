@@ -118,6 +118,12 @@ return [
     // Do not enable on servers reachable from untrusted users if
     // AgenDAV runs in a local network and may expose internal services (SSRF risk).
     'calendar.subscriptions' => false,
+    'calendar.subscriptions.allowed_domains' => [],
+    'calendar.subscriptions.connect_timeout' => 5,
+    'calendar.subscriptions.timeout' => 10,
+    'calendar.subscriptions.cache_ttl' => 300,
+    'calendar.subscriptions.max_bytes' => 2097152,
+    'calendar.subscriptions.max_redirects' => 3,
 
     // Calendar sharing permissions (deprecated - only relevant when calendar.sharing is enabled)
     // These defaults are only useful for DAViCal (http://wiki.davical.org/index.php/Permissions)

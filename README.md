@@ -2,8 +2,11 @@
 
 Dieses Repository ist der öffentliche Davyro-Fork von AgenDAV. Davyro Kalender
 verwendet AgenDAV als Weboberfläche und Baïkal als internen CalDAV-Server. Der
-erste Standalone-Stack läuft unabhängig vom Davyro Hub und ist über
-konfigurierbare Browser-Links mit Davyro Mail verknüpft.
+Standalone-Stack läuft unabhängig vom Davyro Hub und ist über eine
+passwortlose Einmal-Ticket-Brücke mit Davyro Mail verknüpft. Er unterstützt
+mandantenbegrenzte Kalenderfreigaben, sichere WebCal/ICS-Abonnements sowie
+iCalendar-Einladungen, Antworten, Aktualisierungen und Absagen über die in
+Davyro Mail verbundenen SMTP-Konten.
 
 ```bash
 cp .env.example .env

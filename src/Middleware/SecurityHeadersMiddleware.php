@@ -27,7 +27,7 @@ class SecurityHeadersMiddleware implements MiddlewareInterface
         . "img-src 'self' data:; "
         . "font-src 'self' data:; "
         . "connect-src 'self'; "
-        . "frame-ancestors 'none'; "
+        . "frame-ancestors 'self'; "
         . "base-uri 'self'; "
         . "form-action 'self'";
 
@@ -36,7 +36,7 @@ class SecurityHeadersMiddleware implements MiddlewareInterface
         $response = $handler->handle($request);
 
         return $response
-            ->withHeader('X-Frame-Options', 'DENY')
+            ->withHeader('X-Frame-Options', 'SAMEORIGIN')
             ->withHeader('X-Content-Type-Options', 'nosniff')
             ->withHeader('Referrer-Policy', 'same-origin')
             ->withHeader('Content-Security-Policy', self::CSP);

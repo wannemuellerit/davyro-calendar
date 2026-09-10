@@ -23,6 +23,8 @@ namespace AgenDAV\Controller\Event;
 
 use AgenDAV\Controller\JSONController;
 use AgenDAV\CalDAV\Resource\CalendarObject;
+use AgenDAV\Davyro\CalendarBridgeClient;
+use AgenDAV\Davyro\ImipMessageFactory;
 use AgenDAV\Event\RecurrenceId;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
@@ -65,7 +67,11 @@ class Delete extends JSONController
 
     protected function removeObject(CalendarObject $object, ResponseInterface $response): ResponseInterface
     {
+        $icalendar = $object->getEvent() === null ? null : $object->getRenderedEvent();
         $this->client->deleteCalendarObject($object);
+        if ($icalendar !== null) {
+            $this->sendMessage($this->container->get(ImipMessageFactory::class)->cancel($icalendar));
+        }
         return $this->generateSuccess($response);
     }
 
@@ -81,9 +87,17 @@ class Delete extends JSONController
         $object->setEvent($event);
 
         $caldavResponse = $this->client->uploadCalendarObject($object);
+        $this->sendMessage($this->container->get(ImipMessageFactory::class)->request($event->render()));
 
         return $this->generateSuccess($response, [
             'etag' => $caldavResponse->getHeaderLine('ETag'),
         ]);
+    }
+
+    private function sendMessage(?string $message): void
+    {
+        if ($message !== null) {
+            $this->container->get(CalendarBridgeClient::class)->sendImipMessage($message);
+        }
     }
 }

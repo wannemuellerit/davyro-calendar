@@ -11,6 +11,7 @@ return [
     // Session parameters
     'session.storage.options' => [
         'name' => 'agendav_sess',
+        'cookie_path' => rtrim((string) (getenv('AGENDAV_BASE_PATH') ?: '/'), '/') ?: '/',
         'cookie_lifetime' => 0,
         'cookie_httponly' => true,
         // HTTPS-only cookie. Override to false in dev.php for local plain-HTTP

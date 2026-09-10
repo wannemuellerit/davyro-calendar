@@ -57,6 +57,7 @@ services:
       start_period: 30s
     networks:
       - calendar-backend
+      - davyro-mail-internal
     security_opt:
       - no-new-privileges:true
 
@@ -79,8 +80,20 @@ services:
       AGENDAV_DB_PASSWORD: ${AGENDAV_DB_PASSWORD:?Set AGENDAV_DB_PASSWORD}
       AGENDAV_CSRF_SECRET: ${AGENDAV_CSRF_SECRET:?Set AGENDAV_CSRF_SECRET}
       AGENDAV_SESSION_KEY: ${AGENDAV_SESSION_KEY:?Set AGENDAV_SESSION_KEY}
+      AGENDAV_BASE_PATH: ${AGENDAV_BASE_PATH:-/calendar-app}
       BAIKAL_INTERNAL_BASE_URL: http://baikal/dav.php/
-      DAVYRO_CALENDAR_URL: ${DAVYRO_CALENDAR_URL:-}
+      BAIKAL_DB_HOST: database
+      BAIKAL_DB_NAME: ${BAIKAL_DB_NAME:-davyro_baikal}
+      BAIKAL_DB_USER: ${BAIKAL_DB_USER:-davyro_baikal}
+      BAIKAL_DB_PASSWORD: ${BAIKAL_DB_PASSWORD:?Set BAIKAL_DB_PASSWORD}
+      DAVYRO_MAIL_INTERNAL_URL: ${DAVYRO_MAIL_INTERNAL_URL:-http://portal}
+      MAIL_BRIDGE_SHARED_SECRET: ${MAIL_BRIDGE_SHARED_SECRET:?Set MAIL_BRIDGE_SHARED_SECRET}
+      CALENDAR_PRINCIPAL_SECRET: ${CALENDAR_PRINCIPAL_SECRET:?Set CALENDAR_PRINCIPAL_SECRET}
+      CALENDAR_SUBSCRIPTION_ALLOWED_DOMAINS: ${CALENDAR_SUBSCRIPTION_ALLOWED_DOMAINS:-}
+      CALENDAR_SUBSCRIPTION_CACHE_TTL: ${CALENDAR_SUBSCRIPTION_CACHE_TTL:-300}
+      CALENDAR_SUBSCRIPTION_MAX_BYTES: ${CALENDAR_SUBSCRIPTION_MAX_BYTES:-2097152}
+      CALENDAR_SUBSCRIPTION_MAX_REDIRECTS: ${CALENDAR_SUBSCRIPTION_MAX_REDIRECTS:-3}
+      DAVYRO_CALENDAR_URL: ${DAVYRO_CALENDAR_URL:-http://localhost:8088/calendar-app}
       DAVYRO_MAIL_URL: ${DAVYRO_MAIL_URL:-}
       DAVYRO_HUB_URL: ${DAVYRO_HUB_URL:-}
       DAVYRO_ALLOW_INSECURE_LOCAL_LINKS: ${DAVYRO_ALLOW_INSECURE_LOCAL_LINKS:-false}
@@ -93,7 +106,7 @@ services:
     ports:
       - "${CALENDAR_HTTP_BIND:-127.0.0.1}:${CALENDAR_HTTP_PORT:-8089}:80"
     healthcheck:
-      test: ["CMD", "php", "-r", "$$body=@file_get_contents('http://127.0.0.1/login'); exit(is_string($$body) && str_contains($$body, 'Davyro Kalender') ? 0 : 1);"]
+      test: ["CMD", "php", "-r", "$$body=@file_get_contents('http://127.0.0.1/calendar-app/login'); exit(is_string($$body) && str_contains($$body, 'Davyro Kalender') ? 0 : 1);"]
       interval: 10s
       timeout: 5s
       retries: 20
@@ -101,6 +114,7 @@ services:
     networks:
       - calendar-backend
       - calendar-browser
+      - davyro-mail-internal
     security_opt:
       - no-new-privileges:true
     tmpfs:
@@ -122,3 +136,6 @@ networks:
     ipam:
       config:
         - subnet: ${CALENDAR_BROWSER_SUBNET:-10.203.19.0/24}
+  davyro-mail-internal:
+    external: true
+    name: ${DAVYRO_MAIL_NETWORK:-davyro-mail_mail-internal}

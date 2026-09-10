@@ -363,7 +363,27 @@ return [
         return new \AgenDAV\CalDAV\Client(
             $c->get('http.client'),
             $c->get('xml.toolkit'),
-            $c->get('event.parser')
+            $c->get('event.parser'),
+            $c->get(\AgenDAV\Davyro\SubscriptionFeedFetcher::class)
+        );
+    },
+
+    \AgenDAV\Davyro\SubscriptionFeedFetcher::class => function (ContainerInterface $c) {
+        return new \AgenDAV\Davyro\SubscriptionFeedFetcher(
+            new \GuzzleHttp\Client([
+                'connect_timeout' => $c->get('calendar.subscriptions.connect_timeout'),
+                'timeout' => $c->get('calendar.subscriptions.timeout'),
+                'verify' => true,
+            ]),
+            new \Symfony\Component\Cache\Adapter\FilesystemAdapter(
+                'subscriptions',
+                0,
+                __DIR__.'/../var/cache/subscriptions'
+            ),
+            $c->get('calendar.subscriptions.allowed_domains'),
+            $c->get('calendar.subscriptions.cache_ttl'),
+            $c->get('calendar.subscriptions.max_bytes'),
+            $c->get('calendar.subscriptions.max_redirects')
         );
     },
 
@@ -383,4 +403,23 @@ return [
         $tz = $userContext->getTimezone() ?? $c->get('defaults.timezone');
         return new \AgenDAV\Event\Builder\VObjectBuilder(new \DateTimeZone($tz));
     }),
+    \AgenDAV\Davyro\CalendarBridgeClient::class => fn (ContainerInterface $c) => new \AgenDAV\Davyro\CalendarBridgeClient(
+        $c->get('davyro.mail_internal_url'),
+        $c->get('davyro.bridge_shared_secret')
+    ),
+    \AgenDAV\Davyro\ImipMessageFactory::class => \DI\create(\AgenDAV\Davyro\ImipMessageFactory::class),
+    \AgenDAV\Davyro\BaikalPrincipalProvisioner::class => function (ContainerInterface $c) {
+        $options = $c->get('davyro.baikal_db');
+        $pdo = new \PDO(
+            sprintf('mysql:host=%s;dbname=%s;charset=utf8mb4', $options['host'], $options['name']),
+            $options['user'],
+            $options['password'],
+            [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION]
+        );
+
+        return new \AgenDAV\Davyro\BaikalPrincipalProvisioner(
+            $pdo,
+            $c->get('davyro.principal_secret')
+        );
+    },
 ];

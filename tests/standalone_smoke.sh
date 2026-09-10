@@ -4,7 +4,7 @@ set -Eeuo pipefail
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 repository_root=$(cd -- "$script_dir/.." && pwd)
 environment_file=${ENV_FILE:-$repository_root/.env.example}
-calendar_url=${CALENDAR_BASE_URL:-http://127.0.0.1:8089}
+calendar_url=${CALENDAR_BASE_URL:-http://127.0.0.1:8089/calendar-app}
 demo_user=${DAVYRO_SMOKE_USER:-t-demo-m-demo}
 demo_password=${DAVYRO_SMOKE_PASSWORD:-replace-demo-password}
 compose=(docker compose --env-file "$environment_file" -f "$repository_root/compose.standalone.yaml")

@@ -77,6 +77,7 @@ $(document).ready(function() {
 
   // Enable full calendar
   $('#calendar_view').fullCalendar({
+    locale: AgenDAVConf.locale,
     selectable: true,
     editable: true,
     timezone: AgenDAVUserPrefs.timezone,
@@ -644,6 +645,10 @@ var open_event_edit_dialog = function open_event_edit_dialog(event) {
   if (event.calendar === undefined) {
     event.calendar = AgenDAVUserPrefs.default_calendar;
   }
+  var writable_calendars = calendar_list().filter(function(cal) { return cal.writable; });
+  if (!writable_calendars.some(function(cal) { return cal.url === event.calendar; }) && writable_calendars.length > 0) {
+    event.calendar = writable_calendars[0].url;
+  }
 
   // Pre-fill default reminder for new events
   if (is_new && (!event.reminders || event.reminders.length === 0)) {
@@ -667,7 +672,8 @@ var open_event_edit_dialog = function open_event_edit_dialog(event) {
         action: AgenDAVConf.base_app_url + 'events/save',
         method: 'post'
       },
-      calendars: calendar_list().filter(function(cal) { return cal.writable; }),
+      calendars: writable_calendars,
+      mailboxes: AgenDAVConf.mailboxes || [],
 
       // Dates and times
       start_date: AgenDAVDateAndTime.extractDate(event.start),

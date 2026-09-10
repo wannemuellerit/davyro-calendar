@@ -202,9 +202,11 @@ overwritten on upgrades.
 
 .. confval:: calendar.subscriptions
 
-   Allows users to subscribe to external iCal feeds. Disabled by default
-   because it causes the server to fetch arbitrary external URLs on behalf
-   of users. Set to ``true`` to enable the subscriptions box in the sidebar.
+   Allows users to subscribe to external iCal feeds. Disabled by default in
+   the upstream profile. The Davyro standalone profile enables the hardened
+   fetcher with DNS/IP validation, redirect checks, time and size limits and
+   caching. ``calendar.subscriptions.allowed_domains`` can additionally
+   restrict subscriptions to an administrator-defined list of domains.
 
 .. confval:: calendar.sharing.permissions
 
