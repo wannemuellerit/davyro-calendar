@@ -120,6 +120,7 @@ final readonly class IcsImportService
                 $changed = true;
             }
             if ($changed) {
+                $this->mergeTimezones($storedCalendar, $calendar);
                 unset($storedCalendar->METHOD);
                 $this->store->replace($stored, $storedCalendar->serialize());
             }
@@ -184,9 +185,18 @@ final readonly class IcsImportService
 
     private function componentKey(VEvent $event): string
     {
-        $recurrenceId = isset($event->{'RECURRENCE-ID'})
-            ? trim((string) $event->{'RECURRENCE-ID'})
-            : '__master__';
+        $recurrenceId = '__master__';
+        if (isset($event->{'RECURRENCE-ID'})) {
+            try {
+                $property = $event->{'RECURRENCE-ID'};
+                $date = $property->getDateTime();
+                $recurrenceId = $property->hasTime()
+                    ? $date->setTimezone(new \DateTimeZone('UTC'))->format('Ymd\THis\Z')
+                    : $date->format('Ymd');
+            } catch (\Throwable) {
+                $recurrenceId = trim((string) $event->{'RECURRENCE-ID'});
+            }
+        }
 
         return trim((string) ($event->UID ?? '')).'|'.$recurrenceId;
     }
@@ -262,5 +272,20 @@ final readonly class IcsImportService
             }
         }
         $calendar->add(clone $replacement);
+    }
+
+    private function mergeTimezones(VCalendar $target, VCalendar $source): void
+    {
+        $known = [];
+        foreach ($target->select('VTIMEZONE') as $timezone) {
+            $known[(string) ($timezone->TZID ?? '')] = true;
+        }
+        foreach ($source->select('VTIMEZONE') as $timezone) {
+            $tzid = (string) ($timezone->TZID ?? '');
+            if ($tzid !== '' && !isset($known[$tzid])) {
+                $target->add(clone $timezone);
+                $known[$tzid] = true;
+            }
+        }
     }
 }

@@ -70,6 +70,23 @@ final class IcsImportServiceTest extends TestCase
         $service->import(self::calendar(self::event('one', 'One', '20260911T090000Z')), '/calendar/', str_repeat('0', 64));
     }
 
+    public function testEquivalentUtcAndTimezoneRecurrenceIdsAreDeduplicated(): void
+    {
+        $stored = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:series-tz\r\n"
+            ."RECURRENCE-ID:20260912T090000Z\r\nDTSTART:20260912T090000Z\r\nDTEND:20260912T100000Z\r\n"
+            ."SUMMARY:Stored\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
+        $input = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:series-tz\r\n"
+            ."RECURRENCE-ID;TZID=Europe/Berlin:20260912T110000\r\n"
+            ."DTSTART;TZID=Europe/Berlin:20260912T110000\r\nDTEND;TZID=Europe/Berlin:20260912T120000\r\n"
+            ."SUMMARY:Imported\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
+
+        $preview = (new IcsImportService(new InMemoryIcsImportStore(['series-tz' => $stored])))
+            ->preview($input, '/calendar/');
+
+        self::assertSame(1, $preview->duplicates);
+        self::assertSame(0, $preview->importable);
+    }
+
     private static function event(string $uid, string $summary, string $start, ?string $recurrenceId = null): string
     {
         return "BEGIN:VEVENT\r\n"
