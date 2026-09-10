@@ -8,13 +8,44 @@ use AgenDAV\Davyro\CalendarBridgeClient;
 use AgenDAV\Davyro\Import\IcsImportPreview;
 use AgenDAV\Davyro\Import\IcsImportResult;
 use AgenDAV\Davyro\Import\IcsImportTicket;
+use DI\Bridge\Slim\Bridge as SlimBridge;
 use DI\Container;
 use PHPUnit\Framework\TestCase;
 use Slim\Factory\AppFactory;
+use Slim\Handlers\Strategies\RequestResponse;
+use Slim\Psr7\Factory\ServerRequestFactory;
 
 /** Protects the HTTP surface consumed by Davyro Mail's native calendar. */
 final class CalendarApiV1ContractTest extends TestCase
 {
+    public function testProductionBootstrapKeepsSlimRouteArgumentsAsAnArray(): void
+    {
+        $bootstrap = file_get_contents(dirname(__DIR__, 3).'/public/index.php');
+
+        self::assertIsString($bootstrap);
+        self::assertStringContainsString(
+            '$app->getRouteCollector()->setDefaultInvocationStrategy(new RequestResponse());',
+            $bootstrap,
+            'PHP-DI named arguments are incompatible with the controllers\' shared $args parameter',
+        );
+
+        $app = SlimBridge::create(new Container());
+        $app->getRouteCollector()->setDefaultInvocationStrategy(new RequestResponse());
+        $app->get('/mailboxes/{mailbox_id}', static function ($request, $response, array $args) {
+            $response->getBody()->write((string) $args['mailbox_id']);
+
+            return $response;
+        });
+        $app->addRoutingMiddleware();
+
+        $response = $app->handle(
+            (new ServerRequestFactory())->createServerRequest('GET', '/mailboxes/opaque-mailbox'),
+        );
+
+        self::assertSame(200, $response->getStatusCode());
+        self::assertSame('opaque-mailbox', (string) $response->getBody());
+    }
+
     public function testRouteSurfaceMatchesTheMailAndBrowserConsumers(): void
     {
         $app = AppFactory::createFromContainer(new Container());
