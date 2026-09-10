@@ -64,7 +64,22 @@ final class PublicationsController extends ApiController
     public function revoke(ServerRequestInterface $request, ResponseInterface $response, array $args): ResponseInterface
     {
         return $this->guarded($response, function () use ($response, $args): ResponseInterface {
+            $binding = $this->binding((string) ($args['id'] ?? ''));
             $publicationId = trim((string) ($args['publication_id'] ?? ''));
+            $belongsToCalendar = false;
+            foreach ($this->service()->listActive(
+                $binding->id(),
+                $this->access()->tenantId(),
+                $this->access()->userId()
+            ) as $publication) {
+                if (hash_equals($publication->getId(), $publicationId)) {
+                    $belongsToCalendar = true;
+                    break;
+                }
+            }
+            if (!$belongsToCalendar) {
+                throw new ApiNotFound();
+            }
             if (!$this->service()->revoke($publicationId, $this->access()->tenantId(), $this->access()->userId())) {
                 throw new ApiNotFound();
             }
@@ -76,7 +91,11 @@ final class PublicationsController extends ApiController
     private function binding(string $id): \AgenDAV\Data\MailboxCalendarBinding
     {
         $binding = $this->access()->bindingById($id);
-        if ($binding === null || !$binding->isWritable()) {
+        if ($binding === null
+            || $binding->kind() === \AgenDAV\Data\MailboxCalendarBinding::KIND_SHARED
+            || $this->access()->ownedBindingByUrl($binding->calendarUrl()) === null
+            || !$binding->isWritable()
+        ) {
             throw new ApiNotFound();
         }
 

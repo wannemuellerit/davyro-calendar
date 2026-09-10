@@ -170,11 +170,17 @@ final class AvailabilityController extends ApiController
     /** @return array<string, mixed> */
     private function dto(MailboxAvailability $availability): array
     {
+        $exceptions = array_map(static fn (array $exception): array => [
+            'date' => (string) ($exception['date'] ?? ''),
+            'available' => !((bool) ($exception['unavailable'] ?? false)),
+            'windows' => array_values((array) ($exception['windows'] ?? [])),
+        ], $availability->getExceptions());
+
         return [
             'mailbox_id' => $this->access()->publicMailboxId($availability->getMailAccountId()),
             'timezone' => $availability->getTimezone(),
             'weekly_windows' => $availability->getWeeklyWindows(),
-            'exceptions' => $availability->getExceptions(),
+            'exceptions' => $exceptions,
             'updated_at' => $availability->getUpdatedAt()->format(DATE_ATOM),
             'automatic_rejection' => false,
         ];

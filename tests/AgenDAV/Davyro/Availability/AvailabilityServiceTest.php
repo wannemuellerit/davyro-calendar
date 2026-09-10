@@ -55,6 +55,21 @@ final class AvailabilityServiceTest extends TestCase
             ['weekday' => 1, 'start' => '11:00', 'end' => '13:00'],
         ], []);
     }
+
+    public function testBrowserAvailableFlagIsAcceptedWithoutReversingUnavailableExceptions(): void
+    {
+        $service = new AvailabilityService(new MemoryAvailabilityRepository(), new MemoryBusyCalendarRegistry());
+
+        $availability = $service->replace(1, 2, 3, 'Europe/Berlin', [], [
+            ['date' => '2026-12-24', 'available' => false, 'windows' => [['start' => '09:00', 'end' => '17:00']],],
+            ['date' => '2026-12-31', 'available' => true, 'windows' => [['start' => '09:00', 'end' => '12:00']],],
+        ]);
+
+        self::assertSame([
+            ['date' => '2026-12-24', 'unavailable' => true, 'windows' => []],
+            ['date' => '2026-12-31', 'unavailable' => false, 'windows' => [['start' => '09:00', 'end' => '12:00']],],
+        ], $availability->getExceptions());
+    }
 }
 
 final class MemoryAvailabilityRepository implements MailboxAvailabilityRepository

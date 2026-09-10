@@ -136,7 +136,10 @@ final readonly class AvailabilityService
                 throw new \InvalidArgumentException('Availability exception date is invalid or duplicated');
             }
             $seen[$date] = true;
-            if (($exception['unavailable'] ?? false) === true) {
+            $unavailable = array_key_exists('available', $exception)
+                ? $exception['available'] === false
+                : ($exception['unavailable'] ?? false) === true;
+            if ($unavailable) {
                 $normalized[] = ['date' => $date, 'unavailable' => true, 'windows' => []];
                 continue;
             }
