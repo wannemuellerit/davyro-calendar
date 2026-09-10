@@ -47,7 +47,7 @@ final readonly class CalDavIcsImportStore implements IcsImportStore
 
         $object = CalendarObject::generateOnCalendar($calendar, $uid);
         $object->setEvent($this->parser->parse($icalendar));
-        $this->client->uploadCalendarObject($object);
+        $this->client->uploadCalendarObject($object, false);
     }
 
     public function replace(StoredCalendarObject $object, string $icalendar): void
@@ -57,6 +57,6 @@ final readonly class CalDavIcsImportStore implements IcsImportStore
         }
 
         $object->nativeObject->setEvent($this->parser->parse($icalendar));
-        $this->client->uploadCalendarObject($object->nativeObject);
+        $this->client->uploadCalendarObject($object->nativeObject, false);
     }
 }

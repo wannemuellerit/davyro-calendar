@@ -389,7 +389,7 @@ class Client
     * @param \AgenDAV\CalDAV\Resource\CalendarObject $calendar_object
     * @return \GuzzleHttp\Psr7\Response
     */
-    public function uploadCalendarObject(CalendarObject $calendar_object)
+    public function uploadCalendarObject(CalendarObject $calendar_object, bool $scheduleReply = true)
     {
         $this->http_client->setContentTypeiCalendar();
 
@@ -402,6 +402,11 @@ class Client
             $this->http_client->setHeader('If-None-Match', '*');
         } else {
             $this->http_client->setHeader('If-Match', $etag);
+        }
+        if (!$scheduleReply) {
+            // RFC 6638: an explicit import must never send an attendee reply
+            // merely because the object is stored in a calendar collection.
+            $this->http_client->setHeader('Schedule-Reply', 'F');
         }
 
         return $this->http_client->request('PUT', $url, $body);
