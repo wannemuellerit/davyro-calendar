@@ -49,3 +49,8 @@ jobs:
 
       - name: Validate standalone Compose contract
         run: docker compose --env-file .env.example -f compose.standalone.yaml config --quiet
+
+      - name: Validate production Apache image
+        run: |
+          docker build --tag davyro-calendar-ci .
+          docker run --rm --entrypoint apache2ctl davyro-calendar-ci configtest

@@ -13,7 +13,9 @@ ENV APACHE_DOCUMENT_ROOT=/app/public
 RUN sed -ri -e 's!/var/www/html!${APACHE_DOCUMENT_ROOT}!g' \
     /etc/apache2/sites-available/*.conf \
     /etc/apache2/apache2.conf \
-    /etc/apache2/conf-available/*.conf
+    /etc/apache2/conf-available/*.conf \
+    && sed -ri -e 's!^([[:space:]]*)CustomLog .*access\.log combined!\1CustomLog ${APACHE_LOG_DIR}/access.log davyro_safe!' \
+    /etc/apache2/sites-available/*.conf
 
 COPY agendav.conf /etc/apache2/conf-available/agendav.conf
 RUN a2enconf agendav
