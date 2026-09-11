@@ -10,13 +10,16 @@ Davyro Mail verbundenen SMTP-Konten.
 
 ```bash
 cp .env.example .env
-# Beispiel-Secrets zwingend ersetzen
+# Lokal direkt startbar; vor Produktion alle Beispiel-Secrets ersetzen
 docker compose -f compose.standalone.yaml config --quiet
 docker compose -f compose.standalone.yaml up --build -d
 ```
 
 Die Weboberfläche ist danach standardmäßig unter <http://localhost:8089>
 erreichbar. Baïkal und die Datenbank besitzen absichtlich keinen Host-Port.
+Der lokale Bridge-Schlüssel in `.env.example` stimmt mit dem Zero-Config-
+Entwicklungswert von Davyro Mail überein. In Produktion muss in beiden Stacks
+derselbe neue, zufällige `MAIL_BRIDGE_SHARED_SECRET` gesetzt werden.
 Mit den Development-Werten aus `.env.example` ist die lokale Anmeldung
 `t-demo-m-demo` / `replace-demo-password` verfügbar. Demo-Bootstrap muss in
 Produktionsumgebungen deaktiviert werden. Im Entwicklungsmodus zeigt die
