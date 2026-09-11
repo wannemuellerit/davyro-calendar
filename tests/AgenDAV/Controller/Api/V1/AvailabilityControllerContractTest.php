@@ -68,9 +68,20 @@ SQL);
         $session->set('davyro.user_id', 5);
         $session->set('davyro.mailboxes', [['id' => 10, 'email' => 'owner@example.test']]);
 
+        $bindings = new MailboxCalendarBindingsRepository($db);
+        $bindings->ensurePrimary(
+            1,
+            5,
+            10,
+            't1-u5',
+            'mailbox-10',
+            '/dav.php/calendars/t1-u5/mailbox-10/',
+            'Primary'
+        );
+
         return new CalendarAccess(
             $session,
-            new MailboxCalendarBindingsRepository($db),
+            $bindings,
             $this->createMock(SharesRepository::class),
             $this->createMock(SubscriptionsRepository::class),
             new BrowserIdCodec(str_repeat('contract-secret-', 3)),

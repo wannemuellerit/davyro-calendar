@@ -28,6 +28,7 @@ use AgenDAV\Davyro\ImipMessageFactory;
 use AgenDAV\Davyro\Outbox\ImipDispatchOutbox;
 use AgenDAV\Event\RecurrenceId;
 use AgenDAV\Davyro\CalendarAccess;
+use AgenDAV\Exception\NotFound;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Symfony\Component\HttpFoundation\ParameterBag;
@@ -49,10 +50,39 @@ class Delete extends JSONController
         ServerRequestInterface $request,
         ResponseInterface $response
     ): ResponseInterface {
-        if ($this->container->has(CalendarAccess::class)
-            && !$this->container->get(CalendarAccess::class)->canWrite((string) $input->get('calendar'))) {
-            return $response->withStatus(404);
+        if ($this->container->has(CalendarAccess::class)) {
+            $access = $this->container->get(CalendarAccess::class);
+            if ($access->isDavyroSession()) {
+                $kind = $access->resourceKind((string) $input->get('calendar'));
+                if ($kind === null) {
+                    return $response->withStatus(404);
+                }
+                if ($kind === CalendarAccess::RESOURCE_SUBSCRIBED
+                    || !$access->canWrite((string) $input->get('calendar'))
+                ) {
+                    return $this->generateError(
+                        $response,
+                        $this->container->get('translator')->trans('messages.error_calendar_readonly'),
+                        403
+                    );
+                }
+                try {
+                    return $access->withActiveCalendarUrls(
+                        [(string) $input->get('calendar')],
+                        true,
+                        fn (): ResponseInterface => $this->executeMutation($input, $response)
+                    );
+                } catch (NotFound) {
+                    return $response->withStatus(404);
+                }
+            }
         }
+
+        return $this->executeMutation($input, $response);
+    }
+
+    private function executeMutation(ParameterBag $input, ResponseInterface $response): ResponseInterface
+    {
         $calendar = $this->client->getCalendarByUrl($input->get('calendar'));
 
         if (!$calendar->isWritable()) {

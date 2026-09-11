@@ -28,6 +28,7 @@ use AgenDAV\CalDAV\Resource\CalendarObject;
 use AgenDAV\Davyro\ImipMessageFactory;
 use AgenDAV\Davyro\CalendarAccess;
 use AgenDAV\Davyro\Outbox\ImipDispatchOutbox;
+use AgenDAV\Exception\NotFound;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Symfony\Component\HttpFoundation\ParameterBag;
@@ -59,23 +60,6 @@ class Save extends JSONController
             return false;
         }
 
-        $organizer = strtolower(trim((string) $input->get('organizer_email', '')));
-        $session = $this->container->has('session') ? $this->container->get('session') : null;
-        $mailbox = $this->mailboxForCalendar((string) $input->get('calendar'));
-        if ($mailbox !== null && $organizer !== '' && $organizer !== $mailbox['email']) {
-            return false;
-        }
-        if ($this->container->has(CalendarAccess::class)) {
-            $access = $this->container->get(CalendarAccess::class);
-            if ($access->isDavyroSession() && !$access->canWrite((string) $input->get('calendar'))) {
-                return false;
-            }
-            if ($access->isDavyroSession() && $this->isModification($input)
-                && !$access->canWrite((string) $input->get('original_calendar'))) {
-                return false;
-            }
-        }
-
         return $this->parseAttendees((string) $input->get('attendees_input', '')) !== null;
     }
 
@@ -84,6 +68,43 @@ class Save extends JSONController
         ServerRequestInterface $request,
         ResponseInterface $response
     ): ResponseInterface {
+        if ($this->container->has(CalendarAccess::class)) {
+            $access = $this->container->get(CalendarAccess::class);
+            if ($access->isDavyroSession()) {
+                $calendarUrls = [(string) $input->get('calendar')];
+                if ($this->isModification($input)) {
+                    $calendarUrls[] = (string) $input->get('original_calendar');
+                }
+                foreach (array_unique($calendarUrls) as $calendarUrl) {
+                    $kind = $access->resourceKind($calendarUrl);
+                    if ($kind === null) {
+                        return $response->withStatus(404);
+                    }
+                    if ($kind === CalendarAccess::RESOURCE_SUBSCRIBED || !$access->canWrite($calendarUrl)) {
+                        return $this->generateError(
+                            $response,
+                            $this->container->get('translator')->trans('messages.error_calendar_readonly'),
+                            403
+                        );
+                    }
+                }
+                try {
+                    return $access->withActiveCalendarUrls(
+                        $calendarUrls,
+                        true,
+                        fn (): ResponseInterface => $this->executeMutation($input, $response)
+                    );
+                } catch (NotFound) {
+                    return $response->withStatus(404);
+                }
+            }
+        }
+
+        return $this->executeMutation($input, $response);
+    }
+
+    private function executeMutation(ParameterBag $input, ResponseInterface $response): ResponseInterface
+    {
         $this->builder = $this->container->get('event.builder');
         $session = $this->container->has('session') ? $this->container->get('session') : null;
         $activeMailbox = $this->mailboxForCalendar((string) $input->get('calendar'));

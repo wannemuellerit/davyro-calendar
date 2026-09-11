@@ -16,6 +16,17 @@ Den vollständigen lokalen Login- und CalDAV-Smoke-Test startet:
 bash tests/standalone_smoke.sh
 ```
 
+Das von lokalen PHP-/Node-Installationen unabhängige Phase-0-Gate baut das
+separate Test-Image, führt die PHPUnit-Suite darin aus und prüft den direkten
+Provisionierungsadapter gegen das echte, gepinnte Baïkal-0.12.1-Schema:
+
+```bash
+bash tests/phase0_contract.sh
+```
+
+Details zum Datenvertrag und zum sicheren Upgrade-Ablauf stehen unter
+[Entwicklung, Test-Image und Issue-Governance](development.md).
+
 Die Oberfläche läuft standardmäßig auf <http://localhost:8089>. Für lokale
 Entwicklung stellt der explizite Demo-Bootstrap den Benutzer
 `t-demo-m-demo` bereit. Produktion muss `DAVYRO_CREATE_DEMO_USER=false` setzen.
@@ -38,10 +49,13 @@ AgenDAV verwendet dagegen ausschließlich
 `BAIKAL_INTERNAL_BASE_URL=http://baikal/dav.php/` für interne CalDAV-Aufrufe.
 
 Davyro Mail öffnet den Kalender über ein signiertes, einmalig verwendbares
-Launch-Ticket. Davyro Kalender legt den technischen Baïkal-Principal beim
-ersten Aufruf automatisch an und übernimmt Mandant, Benutzer sowie alle
-verbundenen Absenderadressen in die Sitzung. Ein separates Kalenderpasswort
-oder eine zweite Anmeldung gibt es in diesem Ablauf nicht.
+Launch-Ticket. Bereits beim erfolgreichen Speichern eines Postfachs legt ein
+persistenter, idempotenter Hintergrundauftrag den technischen Baïkal-Principal
+und den Primärkalender an. Der Kalender-Login prüft diesen Zustand nur lesend
+und repariert fehlende Principal-, Kalender- oder Bindungsdaten einmalig. Er
+ist nicht der reguläre Provisionierungspfad. Mandant, Benutzer sowie alle
+verbundenen Absenderadressen werden in die Sitzung übernommen; ein separates
+Kalenderpasswort oder eine zweite Anmeldung gibt es nicht.
 
 Termine mit Teilnehmenden werden als iCalendar/iTIP-Nachrichten über das
 verbundene SMTP-Postfach des Organisators versendet. Eingehende `REQUEST`-,

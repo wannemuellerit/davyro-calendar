@@ -40,95 +40,101 @@ final class CalendarsController extends ApiController
         return $this->guarded($response, function () use ($request, $response, $args): ResponseInterface {
             $mailboxId = $this->mailboxId($args['mailbox_id'] ?? null);
             $access = $this->access();
-            if ($access->mailbox($mailboxId) === null) {
-                throw new ApiNotFound();
-            }
-            $input = $this->body($request);
-            $name = $this->name($input['name'] ?? null);
-            $color = $this->color($input['color'] ?? '#6875F5');
-            if (array_key_exists('busy_enabled', $input) && !is_bool($input['busy_enabled'])) {
-                throw new ApiValidation('busy_enabled must be a boolean');
-            }
-            $busyEnabled = (bool) ($input['busy_enabled'] ?? true);
-            $uri = MailboxCalendar::customUriPrefix($mailboxId).Uuid::generate();
-            $url = rtrim((string) $this->container->get('session')->get('calendar_home_set'), '/').'/'.$uri.'/';
-            $calendar = new Calendar($url, [Calendar::DISPLAYNAME => $name, Calendar::COLOR => $color]);
-            $this->client()->createCalendar($calendar);
-
-            try {
-                $binding = $this->bindings()->createAdditional(
-                    $access->tenantId(),
-                    $access->userId(),
-                    $mailboxId,
-                    $access->principal(),
-                    $uri,
-                    $url,
-                    $name,
-                    $color,
-                    $busyEnabled
-                );
-            } catch (\Throwable $exception) {
-                try {
-                    $this->client()->deleteCalendar($calendar);
-                } catch (\Throwable) {
-                    // Keep the original metadata error; the orphan can be
-                    // detected and cleaned up by reconciliation.
+            return $access->withActiveMailbox($mailboxId, function () use (
+                $request,
+                $response,
+                $access,
+                $mailboxId,
+            ): ResponseInterface {
+                $input = $this->body($request);
+                $name = $this->name($input['name'] ?? null);
+                $color = $this->color($input['color'] ?? '#6875F5');
+                if (array_key_exists('busy_enabled', $input) && !is_bool($input['busy_enabled'])) {
+                    throw new ApiValidation('busy_enabled must be a boolean');
                 }
-                throw $exception;
-            }
+                $busyEnabled = (bool) ($input['busy_enabled'] ?? true);
+                $uri = MailboxCalendar::customUriPrefix($mailboxId).Uuid::generate();
+                $url = rtrim((string) $this->container->get('session')->get('calendar_home_set'), '/').'/'.$uri.'/';
+                $calendar = new Calendar($url, [Calendar::DISPLAYNAME => $name, Calendar::COLOR => $color]);
+                $this->client()->createCalendar($calendar);
 
-            return $this->json($response, ['data' => $access->calendarDto($binding)], 201);
+                try {
+                    $binding = $this->bindings()->createAdditional(
+                        $access->tenantId(),
+                        $access->userId(),
+                        $mailboxId,
+                        $access->principal(),
+                        $uri,
+                        $url,
+                        $name,
+                        $color,
+                        $busyEnabled
+                    );
+                } catch (\Throwable $exception) {
+                    try {
+                        $this->client()->deleteCalendar($calendar);
+                    } catch (\Throwable) {
+                        // Keep the original metadata error; the orphan can be
+                        // detected and cleaned up by reconciliation.
+                    }
+                    throw $exception;
+                }
+
+                return $this->json($response, ['data' => $access->calendarDto($binding)], 201);
+            });
         });
     }
 
     public function update(ServerRequestInterface $request, ResponseInterface $response, array $args): ResponseInterface
     {
         return $this->guarded($response, function () use ($request, $response, $args): ResponseInterface {
-            $binding = $this->binding((string) ($args['id'] ?? ''));
-            if ($binding->kind() === \AgenDAV\Data\MailboxCalendarBinding::KIND_SHARED) {
-                throw new ApiNotFound();
-            }
-            $input = $this->body($request);
-            $name = array_key_exists('name', $input) ? $this->name($input['name']) : $binding->name();
-            $color = array_key_exists('color', $input) ? $this->color($input['color']) : $binding->color();
-            $busy = array_key_exists('busy_enabled', $input) ? (bool) $input['busy_enabled'] : null;
+            return $this->access()->withActiveBinding(
+                (string) ($args['id'] ?? ''),
+                true,
+                function ($binding) use ($request, $response): ResponseInterface {
+                    if ($binding->kind() === \AgenDAV\Data\MailboxCalendarBinding::KIND_SHARED) {
+                        throw new ApiNotFound();
+                    }
+                    $input = $this->body($request);
+                    $name = array_key_exists('name', $input) ? $this->name($input['name']) : $binding->name();
+                    $color = array_key_exists('color', $input) ? $this->color($input['color']) : $binding->color();
+                    $busy = array_key_exists('busy_enabled', $input) ? (bool) $input['busy_enabled'] : null;
 
-            $calendar = $this->client()->getCalendarByUrl($binding->calendarUrl());
-            if (!$calendar->isWritable() || !$binding->isWritable()) {
-                throw new ApiNotFound();
-            }
-            $calendar->setProperty(Calendar::DISPLAYNAME, $name);
-            $calendar->setProperty(Calendar::COLOR, $color);
-            $this->client()->updateCalendar($calendar);
-            $binding = $this->bindings()->updateCalendar($binding, $name, $color, $busy);
+                    $calendar = $this->client()->getCalendarByUrl($binding->calendarUrl());
+                    if (!$calendar->isWritable()) {
+                        throw new ApiNotFound();
+                    }
+                    $calendar->setProperty(Calendar::DISPLAYNAME, $name);
+                    $calendar->setProperty(Calendar::COLOR, $color);
+                    $this->client()->updateCalendar($calendar);
+                    $binding = $this->bindings()->updateCalendar($binding, $name, $color, $busy);
 
-            return $this->json($response, ['data' => $this->access()->calendarDto($binding)]);
+                    return $this->json($response, ['data' => $this->access()->calendarDto($binding)]);
+                }
+            );
         });
     }
 
     public function delete(ServerRequestInterface $request, ResponseInterface $response, array $args): ResponseInterface
     {
         return $this->guarded($response, function () use ($response, $args): ResponseInterface {
-            $binding = $this->binding((string) ($args['id'] ?? ''));
-            if ($binding->kind() === \AgenDAV\Data\MailboxCalendarBinding::KIND_SHARED) {
-                throw new ApiNotFound();
-            }
-            if ($binding->isPrimary()) {
-                throw new ApiConflict('The primary mailbox calendar cannot be deleted');
-            }
-            if (!$binding->isWritable()) {
-                throw new ApiNotFound();
-            }
-            $this->client()->deleteCalendar(new Calendar($binding->calendarUrl()));
-            $this->bindings()->deleteAdditional($binding);
+            return $this->access()->withActiveBinding(
+                (string) ($args['id'] ?? ''),
+                true,
+                function ($binding) use ($response): ResponseInterface {
+                    if ($binding->kind() === \AgenDAV\Data\MailboxCalendarBinding::KIND_SHARED) {
+                        throw new ApiNotFound();
+                    }
+                    if ($binding->isPrimary()) {
+                        throw new ApiConflict('The primary mailbox calendar cannot be deleted');
+                    }
+                    $this->client()->deleteCalendar(new Calendar($binding->calendarUrl()));
+                    $this->bindings()->deleteAdditional($binding);
 
-            return $response->withStatus(204);
+                    return $response->withStatus(204);
+                }
+            );
         });
-    }
-
-    private function binding(string $id): \AgenDAV\Data\MailboxCalendarBinding
-    {
-        return $this->access()->bindingById($id) ?? throw new ApiNotFound();
     }
 
     private function access(): CalendarAccess

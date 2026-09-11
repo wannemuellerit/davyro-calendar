@@ -41,21 +41,30 @@ final class EventDeliveryController extends ApiController
     public function retry(ServerRequestInterface $request, ResponseInterface $response, array $args): ResponseInterface
     {
         return $this->guarded($response, function () use ($response, $args): ResponseInterface {
-            [$token, $reference, $context] = $this->reference($args['id'] ?? null);
-            $delivery = $this->outbox()->retryLatest(
-                $context['tenant_id'],
-                $context['user_id'],
-                $context['mail_account_id'],
-                $reference['uid']
-            );
-            if ($delivery === null) {
-                $delivery = $this->bridge()->retryDelivery($reference['uid'], $context);
-            } elseif ($delivery['status'] === 'sent') {
-                $delivery = $this->bridge()->deliveryStatus($reference['uid'], $context);
+            [, $initialReference] = $this->reference($args['id'] ?? null);
+            $retry = function () use ($response, $args): ResponseInterface {
+                [$token, $reference, $context] = $this->reference($args['id'] ?? null);
+                $delivery = $this->outbox()->retryLatest(
+                    $context['tenant_id'],
+                    $context['user_id'],
+                    $context['mail_account_id'],
+                    $reference['uid']
+                );
+                if ($delivery === null) {
+                    $delivery = $this->bridge()->retryDelivery($reference['uid'], $context);
+                } elseif ($delivery['status'] === 'sent') {
+                    $delivery = $this->bridge()->deliveryStatus($reference['uid'], $context);
+                }
+
+                return $this->json($response, ['data' => $this->dto($token, $delivery)], 202)
+                    ->withHeader('Cache-Control', 'no-store');
+            };
+
+            if (str_starts_with($initialReference['source_id'], 'invitation:')) {
+                return $this->access()->withActiveMailbox($initialReference['mail_account_id'], $retry);
             }
 
-            return $this->json($response, ['data' => $this->dto($token, $delivery)], 202)
-                ->withHeader('Cache-Control', 'no-store');
+            return $this->access()->withActiveBinding($initialReference['source_id'], false, $retry);
         });
     }
 

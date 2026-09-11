@@ -6,12 +6,12 @@ namespace AgenDAV\Controller;
 
 use AgenDAV\Davyro\BaikalPrincipalProvisioner;
 use AgenDAV\Davyro\Availability\MailboxAvailabilityRepository;
+use AgenDAV\Davyro\ImipMessageFactory;
 use AgenDAV\Davyro\MailboxCalendar;
 use AgenDAV\Davyro\Outbox\ImipDispatchOutbox;
 use AgenDAV\Davyro\Publication\CalendarPublicationRepository;
 use AgenDAV\Davyro\WebCal\WebCalFeedStateRepository;
 use AgenDAV\Repositories\MailboxCalendarBindingsRepository;
-use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
 use Doctrine\DBAL\Platforms\SQLitePlatform;
 use Psr\Container\ContainerInterface;
 use Psr\Http\Message\ResponseInterface;
@@ -34,13 +34,13 @@ final class InternalMailboxLifecycleController
             if (!is_array($input)) {
                 throw new \InvalidArgumentException('JSON object expected');
             }
-            $context = $this->context($input);
+            $context = $this->context($input, $action);
             $db = $this->container->get('db');
             $db->beginTransaction();
             try {
                 $currentVersion = $this->claimLifecycleVersion($context, $action);
                 if ($currentVersion > $context['lifecycle_version']) {
-                    $result = $this->staleLifecycleResponse($response, $context, $currentVersion);
+                    $result = $this->staleLifecycleResponse($response, $context, $action, $currentVersion);
                 } else {
                     $result = match ($action) {
                         'provision' => $this->provision($response, $context),
@@ -70,8 +70,11 @@ final class InternalMailboxLifecycleController
     }
 
     /** @param array<string, mixed> $context */
-    private function provision(ResponseInterface $response, array $context): ResponseInterface
-    {
+    private function provision(
+        ResponseInterface $response,
+        array $context,
+        string $responseAction = 'provision',
+    ): ResponseInterface {
         $this->provisioner()->provision(
             $context['principal'],
             $context['email'],
@@ -88,8 +91,38 @@ final class InternalMailboxLifecycleController
             $this->caldavCalendarUrl($context['principal'], $uri),
             'Kalender · '.$context['email']
         );
+        $calendarUris = array_map(
+            static fn ($candidate): string => $candidate->calendarUri(),
+            $this->bindings()->findForMailbox(
+                $context['tenant_id'],
+                $context['user_id'],
+                $context['mail_account_id']
+            )
+        );
+        $migrated = $this->provisioner()->rewriteOrganizerAliases(
+            $context['principal'],
+            $calendarUris,
+            $context['email'],
+            $context['organizer_aliases']
+        );
+        foreach ($migrated as $request) {
+            $message = $this->container->get(ImipMessageFactory::class)->request($request['icalendar']);
+            if ($message === null) {
+                continue;
+            }
+            $this->container->get(ImipDispatchOutbox::class)->queueAndAttempt(
+                $message,
+                [
+                    'tenant_id' => $context['tenant_id'],
+                    'user_id' => $context['user_id'],
+                    'mail_account_id' => $context['mail_account_id'],
+                ],
+                $request['uid'],
+                'REQUEST'
+            );
+        }
 
-        return $this->lifecycleResponse($response, $binding, 'active');
+        return $this->lifecycleResponse($response, $binding, 'active', $context, $responseAction);
     }
 
     /** @param array<string, mixed> $context */
@@ -99,7 +132,8 @@ final class InternalMailboxLifecycleController
             $context['tenant_id'],
             $context['user_id'],
             $context['mail_account_id'],
-            $context['principal']
+            $context['principal'],
+            $context['purge_after']
         );
         $this->deactivateMailboxMetadata($context);
         if ($bindings === []) {
@@ -107,12 +141,14 @@ final class InternalMailboxLifecycleController
                 'mailbox_id' => $context['mail_account_id'],
                 'calendar_id' => null,
                 'status' => 'absent',
+                'lifecycle_version' => $context['lifecycle_version'],
+                'action' => 'archive',
                 'archived_at' => null,
                 'purge_after' => null,
             ]]);
         }
 
-        return $this->lifecycleResponse($response, $this->primary($bindings), 'archived');
+        return $this->lifecycleResponse($response, $this->primary($bindings), 'archived', $context, 'archive');
     }
 
     /** @param array<string, mixed> $context */
@@ -126,26 +162,49 @@ final class InternalMailboxLifecycleController
         );
         $this->reactivateMailboxMetadata($context);
         if ($bindings === []) {
-            return $this->provision($response, $context);
+            return $this->provision($response, $context, 'restore');
         }
 
-        return $this->lifecycleResponse($response, $this->primary($bindings), 'active');
+        return $this->lifecycleResponse($response, $this->primary($bindings), 'active', $context, 'restore');
     }
 
     /** @param array<string, mixed> $context */
     private function purge(ResponseInterface $response, array $context): ResponseInterface
     {
-        $all = $this->bindings()->findForMailbox(
+        // A signed purge operation is also the recovery path when the earlier
+        // archive delivery never reached this service. Persist its retention
+        // deadline on still-active bindings before evaluating the gate. The
+        // repository deliberately preserves any later deadline already stored.
+        $all = $this->bindings()->archiveMailbox(
             $context['tenant_id'],
             $context['user_id'],
             $context['mail_account_id'],
-            true
+            $context['principal'],
+            $context['purge_after']
         );
         if ($all === []) {
+            if ($context['purge_after'] > new \DateTimeImmutable('now', new \DateTimeZone('UTC'))) {
+                return $this->json($response, [
+                    'error' => ['code' => 'retention_active', 'message' => 'The 30-day retention period is still active'],
+                ], 409);
+            }
+            $this->purgeMailboxMetadata($context, []);
+            $this->provisioner()->purgeMailboxCalendars(
+                $context['principal'],
+                [MailboxCalendar::uri($context['mail_account_id'])]
+            );
+            $this->container->get('monolog')->notice('Orphaned mailbox calendar permanently purged', [
+                'tenant_id' => $context['tenant_id'],
+                'user_id' => $context['user_id'],
+                'mail_account_id' => $context['mail_account_id'],
+            ]);
+
             return $this->json($response, ['data' => [
                 'mailbox_id' => $context['mail_account_id'],
                 'calendar_id' => null,
                 'status' => 'purged',
+                'lifecycle_version' => $context['lifecycle_version'],
+                'action' => 'purge',
                 'archived_at' => null,
                 'purge_after' => null,
             ]]);
@@ -164,7 +223,10 @@ final class InternalMailboxLifecycleController
 
         $primaryId = $this->primary($all)->id();
         $this->purgeMailboxMetadata($context, $all);
-        $this->provisioner()->purgeMailboxCalendars($context['principal'], $context['mail_account_id']);
+        $this->provisioner()->purgeMailboxCalendars(
+            $context['principal'],
+            array_map(static fn ($binding): string => $binding->calendarUri(), $all)
+        );
         $this->bindings()->purgeMailbox(
             $context['tenant_id'],
             $context['user_id'],
@@ -181,13 +243,15 @@ final class InternalMailboxLifecycleController
             'mailbox_id' => $context['mail_account_id'],
             'calendar_id' => $primaryId,
             'status' => 'purged',
+            'lifecycle_version' => $context['lifecycle_version'],
+            'action' => 'purge',
             'archived_at' => null,
             'purge_after' => null,
         ]]);
     }
 
     /** @param array<string, mixed> $input @return array<string, mixed> */
-    private function context(array $input): array
+    private function context(array $input, string $action): array
     {
         $tenantId = (int) ($input['tenant_id'] ?? 0);
         $userId = (int) ($input['user_id'] ?? 0);
@@ -196,6 +260,16 @@ final class InternalMailboxLifecycleController
         $tenantPrefix = trim((string) ($input['tenant_prefix'] ?? ''));
         $email = strtolower(trim((string) ($input['email'] ?? '')));
         $name = trim((string) ($input['name'] ?? '')) ?: $email;
+        $organizerAliases = $input['organizer_aliases'] ?? [];
+        $purgeAfter = null;
+        if (($input['purge_after'] ?? null) !== null) {
+            try {
+                $purgeAfter = (new \DateTimeImmutable((string) $input['purge_after']))
+                    ->setTimezone(new \DateTimeZone('UTC'));
+            } catch (\Exception) {
+                throw new \InvalidArgumentException('Invalid lifecycle purge timestamp');
+            }
+        }
         $lifecycleVersion = array_key_exists('lifecycle_version', $input)
             ? filter_var($input['lifecycle_version'], FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]])
             : 1;
@@ -203,10 +277,26 @@ final class InternalMailboxLifecycleController
             || $tenantPrefix !== 't'.$tenantId.'-'
             || $principal !== $tenantPrefix.'u'.$userId
             || filter_var($email, FILTER_VALIDATE_EMAIL) === false
+            || strlen($email) > 80
             || mb_strlen($name) > 160
+            || !is_array($organizerAliases)
+            || count($organizerAliases) > 100
             || $lifecycleVersion === false
+            || (in_array($action, ['archive', 'purge'], true) && $purgeAfter === null)
         ) {
             throw new \InvalidArgumentException('Invalid lifecycle context');
+        }
+        $validatedOrganizerAliases = [];
+        foreach ($organizerAliases as $organizerAlias) {
+            $organizerAlias = strtolower(trim((string) $organizerAlias));
+            if (filter_var($organizerAlias, FILTER_VALIDATE_EMAIL) === false
+                || strlen($organizerAlias) > 80
+            ) {
+                throw new \InvalidArgumentException('Invalid organizer alias');
+            }
+            if (!hash_equals($email, $organizerAlias)) {
+                $validatedOrganizerAliases[$organizerAlias] = true;
+            }
         }
 
         return [
@@ -217,6 +307,8 @@ final class InternalMailboxLifecycleController
             'tenant_prefix' => $tenantPrefix,
             'email' => $email,
             'name' => $name,
+            'organizer_aliases' => array_keys($validatedOrganizerAliases),
+            'purge_after' => $purgeAfter,
             'lifecycle_version' => $lifecycleVersion,
         ];
     }
@@ -244,11 +336,15 @@ final class InternalMailboxLifecycleController
         ResponseInterface $response,
         \AgenDAV\Data\MailboxCalendarBinding $binding,
         string $status,
+        array $context,
+        string $action,
     ): ResponseInterface {
         return $this->json($response, ['data' => [
             'mailbox_id' => $binding->mailAccountId(),
             'calendar_id' => $binding->id(),
             'status' => $status,
+            'lifecycle_version' => $context['lifecycle_version'],
+            'action' => $action,
             'archived_at' => $binding->archivedAt()?->format(DATE_ATOM),
             'purge_after' => $binding->purgeAfter()?->format(DATE_ATOM),
         ]]);
@@ -376,52 +472,60 @@ final class InternalMailboxLifecycleController
             'user' => $context['user_id'],
             'mailbox' => $context['mail_account_id'],
         ];
+        $criteria = [
+            'tenant_id' => $context['tenant_id'],
+            'user_id' => $context['user_id'],
+            'mail_account_id' => $context['mail_account_id'],
+        ];
         $suffix = $db->getDatabasePlatform() instanceof SQLitePlatform ? '' : ' FOR UPDATE';
-        $current = $db->fetchOne(
-            'SELECT lifecycle_version FROM davyro_mailbox_lifecycle_state '
+        $insertParameters = [
+            ...$parameters,
+            'principal' => $context['principal'],
+            'version' => $context['lifecycle_version'],
+            'action' => $action,
+            'updated' => gmdate('Y-m-d H:i:s'),
+        ];
+        if ($db->getDatabasePlatform() instanceof SQLitePlatform) {
+            $db->executeStatement(
+                'INSERT OR IGNORE INTO davyro_mailbox_lifecycle_state '
+                .'(tenant_id, user_id, mail_account_id, principal, lifecycle_version, last_action, updated_at) '
+                .'VALUES (:tenant, :user, :mailbox, :principal, :version, :action, :updated)',
+                $insertParameters
+            );
+        } else {
+            $db->executeStatement(
+                'INSERT INTO davyro_mailbox_lifecycle_state '
+                .'(tenant_id, user_id, mail_account_id, principal, lifecycle_version, last_action, updated_at) '
+                .'VALUES (:tenant, :user, :mailbox, :principal, :version, :action, :updated) '
+                .'ON DUPLICATE KEY UPDATE mail_account_id = mail_account_id',
+                $insertParameters
+            );
+        }
+        $current = $db->fetchAssociative(
+            'SELECT lifecycle_version, last_action FROM davyro_mailbox_lifecycle_state '
             .'WHERE tenant_id = :tenant AND user_id = :user AND mail_account_id = :mailbox'.$suffix,
             $parameters
         );
-        if ($current !== false) {
-            if ((int) $current > $context['lifecycle_version']) {
-                return (int) $current;
-            }
-            $db->update('davyro_mailbox_lifecycle_state', [
-                'principal' => $context['principal'],
-                'lifecycle_version' => $context['lifecycle_version'],
-                'last_action' => $action,
-                'updated_at' => gmdate('Y-m-d H:i:s'),
-            ], $parameters);
-
-            return $context['lifecycle_version'];
+        if (!is_array($current)) {
+            throw new \RuntimeException('Lifecycle state could not be claimed');
         }
-
-        try {
-            $db->insert('davyro_mailbox_lifecycle_state', [
-                'tenant_id' => $context['tenant_id'],
-                'user_id' => $context['user_id'],
-                'mail_account_id' => $context['mail_account_id'],
-                'principal' => $context['principal'],
-                'lifecycle_version' => $context['lifecycle_version'],
-                'last_action' => $action,
-                'updated_at' => gmdate('Y-m-d H:i:s'),
-            ]);
-        } catch (UniqueConstraintViolationException) {
-            $current = (int) $db->fetchOne(
-                'SELECT lifecycle_version FROM davyro_mailbox_lifecycle_state '
-                .'WHERE tenant_id = :tenant AND user_id = :user AND mail_account_id = :mailbox'.$suffix,
-                $parameters
-            );
-            if ($current > $context['lifecycle_version']) {
-                return $current;
-            }
-            $db->update('davyro_mailbox_lifecycle_state', [
-                'principal' => $context['principal'],
-                'lifecycle_version' => $context['lifecycle_version'],
-                'last_action' => $action,
-                'updated_at' => gmdate('Y-m-d H:i:s'),
-            ], $parameters);
+        $currentVersion = (int) $current['lifecycle_version'];
+        if ($currentVersion > $context['lifecycle_version']) {
+            return $currentVersion;
         }
+        if ($currentVersion === $context['lifecycle_version']) {
+            if (!hash_equals((string) $current['last_action'], $action)) {
+                throw new \RuntimeException('Lifecycle version is already bound to another action');
+            }
+
+            return $currentVersion;
+        }
+        $db->update('davyro_mailbox_lifecycle_state', [
+            'principal' => $context['principal'],
+            'lifecycle_version' => $context['lifecycle_version'],
+            'last_action' => $action,
+            'updated_at' => gmdate('Y-m-d H:i:s'),
+        ], $criteria);
 
         return $context['lifecycle_version'];
     }
@@ -430,13 +534,16 @@ final class InternalMailboxLifecycleController
     private function staleLifecycleResponse(
         ResponseInterface $response,
         array $context,
+        string $action,
         int $currentVersion,
     ): ResponseInterface {
         return $this->json($response, ['data' => [
             'mailbox_id' => $context['mail_account_id'],
             'calendar_id' => null,
             'status' => 'stale_ignored',
-            'lifecycle_version' => $currentVersion,
+            'lifecycle_version' => $context['lifecycle_version'],
+            'action' => $action,
+            'current_lifecycle_version' => $currentVersion,
             'archived_at' => null,
             'purge_after' => null,
         ]]);

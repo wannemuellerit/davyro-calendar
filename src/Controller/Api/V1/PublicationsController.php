@@ -34,72 +34,101 @@ final class PublicationsController extends ApiController
     public function create(ServerRequestInterface $request, ResponseInterface $response, array $args): ResponseInterface
     {
         return $this->guarded($response, function () use ($response, $args): ResponseInterface {
-            $binding = $this->binding((string) ($args['id'] ?? ''));
-            $issued = $this->service()->create(
-                $this->access()->tenantId(),
-                $this->access()->userId(),
-                $binding->mailAccountId(),
-                $binding->id(),
-            );
+            return $this->access()->withActiveBinding(
+                (string) ($args['id'] ?? ''),
+                true,
+                function ($binding) use ($response): ResponseInterface {
+                    $this->assertOwnedBinding($binding);
+                    $issued = $this->service()->create(
+                        $this->access()->tenantId(),
+                        $this->access()->userId(),
+                        $binding->mailAccountId(),
+                        $binding->id(),
+                    );
 
-            return $this->json($response, ['data' => $this->dto($issued)], 201);
+                    return $this->json($response, ['data' => $this->dto($issued)], 201);
+                }
+            );
         });
     }
 
     public function rotate(ServerRequestInterface $request, ResponseInterface $response, array $args): ResponseInterface
     {
         return $this->guarded($response, function () use ($response, $args): ResponseInterface {
-            $binding = $this->binding((string) ($args['id'] ?? ''));
-            $issued = $this->service()->rotate(
-                $this->access()->tenantId(),
-                $this->access()->userId(),
-                $binding->mailAccountId(),
-                $binding->id(),
-            );
+            return $this->access()->withActiveBinding(
+                (string) ($args['id'] ?? ''),
+                true,
+                function ($binding) use ($response): ResponseInterface {
+                    $this->assertOwnedBinding($binding);
+                    $issued = $this->service()->rotate(
+                        $this->access()->tenantId(),
+                        $this->access()->userId(),
+                        $binding->mailAccountId(),
+                        $binding->id(),
+                    );
 
-            return $this->json($response, ['data' => $this->dto($issued)], 201);
+                    return $this->json($response, ['data' => $this->dto($issued)], 201);
+                }
+            );
         });
     }
 
     public function revoke(ServerRequestInterface $request, ResponseInterface $response, array $args): ResponseInterface
     {
         return $this->guarded($response, function () use ($response, $args): ResponseInterface {
-            $binding = $this->binding((string) ($args['id'] ?? ''));
-            $publicationId = trim((string) ($args['publication_id'] ?? ''));
-            $belongsToCalendar = false;
-            foreach ($this->service()->listActive(
-                $binding->id(),
-                $this->access()->tenantId(),
-                $this->access()->userId()
-            ) as $publication) {
-                if (hash_equals($publication->getId(), $publicationId)) {
-                    $belongsToCalendar = true;
-                    break;
-                }
-            }
-            if (!$belongsToCalendar) {
-                throw new ApiNotFound();
-            }
-            if (!$this->service()->revoke($publicationId, $this->access()->tenantId(), $this->access()->userId())) {
-                throw new ApiNotFound();
-            }
+            return $this->access()->withActiveBinding(
+                (string) ($args['id'] ?? ''),
+                true,
+                function ($binding) use ($response, $args): ResponseInterface {
+                    $this->assertOwnedBinding($binding);
+                    $publicationId = trim((string) ($args['publication_id'] ?? ''));
+                    $belongsToCalendar = false;
+                    foreach ($this->service()->listActive(
+                        $binding->id(),
+                        $this->access()->tenantId(),
+                        $this->access()->userId()
+                    ) as $publication) {
+                        if (hash_equals($publication->getId(), $publicationId)) {
+                            $belongsToCalendar = true;
+                            break;
+                        }
+                    }
+                    if (!$belongsToCalendar) {
+                        throw new ApiNotFound();
+                    }
+                    if (!$this->service()->revoke(
+                        $publicationId,
+                        $this->access()->tenantId(),
+                        $this->access()->userId()
+                    )) {
+                        throw new ApiNotFound();
+                    }
 
-            return $response->withStatus(204);
+                    return $response->withStatus(204);
+                }
+            );
         });
     }
 
     private function binding(string $id): \AgenDAV\Data\MailboxCalendarBinding
     {
         $binding = $this->access()->bindingById($id);
-        if ($binding === null
-            || $binding->kind() === \AgenDAV\Data\MailboxCalendarBinding::KIND_SHARED
+        if ($binding === null) {
+            throw new ApiNotFound();
+        }
+        $this->assertOwnedBinding($binding);
+
+        return $binding;
+    }
+
+    private function assertOwnedBinding(\AgenDAV\Data\MailboxCalendarBinding $binding): void
+    {
+        if ($binding->kind() === \AgenDAV\Data\MailboxCalendarBinding::KIND_SHARED
             || $this->access()->ownedBindingByUrl($binding->calendarUrl()) === null
             || !$binding->isWritable()
         ) {
             throw new ApiNotFound();
         }
-
-        return $binding;
     }
 
     /** @return array<string, mixed> */

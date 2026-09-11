@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace AgenDAV\Controller;
 
 use AgenDAV\Davyro\BaikalPrincipalProvisioner;
+use AgenDAV\Davyro\MailboxLifecycleGate;
+use AgenDAV\Repositories\MailboxCalendarBindingsRepository;
 use GuzzleHttp\Client;
 use Psr\Container\ContainerInterface;
 use Psr\Http\Message\ResponseInterface;
@@ -38,13 +40,20 @@ final class InternalInvitationReply
             $userId = (int) ($input['user_id'] ?? 0);
             $organizerEmail = strtolower(trim((string) ($input['email'] ?? '')));
             $mailAccountId = (int) ($input['mail_account_id'] ?? 0);
+            $lifecycleVersion = filter_var(
+                $input['lifecycle_version'] ?? null,
+                FILTER_VALIDATE_INT,
+                ['options' => ['min_range' => 1]]
+            );
             $raw = (string) ($input['icalendar'] ?? '');
             if ($tenantId < 1
                 || $userId < 1
                 || !hash_equals('t'.$tenantId.'-', $tenantPrefix)
                 || !hash_equals($tenantPrefix.'u'.$userId, $principal)
                 || $mailAccountId < 1
+                || $lifecycleVersion === false
                 || filter_var($organizerEmail, FILTER_VALIDATE_EMAIL) === false
+                || strlen($organizerEmail) > 80
                 || $raw === ''
                 || strlen($raw) > 2 * 1024 * 1024
             ) {
@@ -81,74 +90,108 @@ final class InternalInvitationReply
                 throw new \RuntimeException('Reply has no participant status');
             }
 
-            $provisioner = $this->container->get(BaikalPrincipalProvisioner::class);
-            $password = $provisioner->provision(
-                $principal,
-                $organizerEmail,
-                trim((string) ($input['name'] ?? '')) ?: $organizerEmail,
-                $mailAccountId
-            );
-            $location = $provisioner->findOwnedCalendarObject($principal, $uid, $mailAccountId);
-            if ($location === null) {
-                throw new \RuntimeException('Original calendar event was not found');
-            }
+            return $this->container->get(MailboxLifecycleGate::class)->run(
+                $tenantId,
+                $userId,
+                [['id' => $mailAccountId, 'lifecycle_version' => $lifecycleVersion]],
+                function () use (
+                    $input,
+                    $principal,
+                    $organizerEmail,
+                    $mailAccountId,
+                    $tenantId,
+                    $userId,
+                    $uid,
+                    $replyEvent,
+                    $respondingEmail,
+                    $respondingStatus,
+                    $response,
+                ): ResponseInterface {
+                    $bindings = $this->container->get(MailboxCalendarBindingsRepository::class)->findForMailbox(
+                        $tenantId,
+                        $userId,
+                        $mailAccountId
+                    );
+                    $calendarUris = [];
+                    foreach ($bindings as $binding) {
+                        if (hash_equals($principal, $binding->principal())) {
+                            $calendarUris[] = $binding->calendarUri();
+                        }
+                    }
+                    if ($calendarUris === []) {
+                        throw new \RuntimeException('Organizer mailbox has no active calendar binding');
+                    }
 
-            $path = sprintf(
-                'calendars/%s/%s/%s',
-                rawurlencode($principal),
-                rawurlencode($location['calendar_uri']),
-                rawurlencode($location['object_uri'])
-            );
-            $client = new Client([
-                'base_uri' => rtrim($this->container->get('caldav.baseurl'), '/') . '/',
-                'auth' => [$principal, $password],
-                'connect_timeout' => 3,
-                'timeout' => 15,
-                'http_errors' => false,
-            ]);
-            $current = $client->get($path);
-            if ($current->getStatusCode() !== 200) {
-                throw new \RuntimeException('Original calendar event could not be loaded');
-            }
-            $storedCalendar = Reader::read((string) $current->getBody(), Reader::OPTION_FORGIVING);
-            $storedEvent = $storedCalendar->VEVENT;
-            if ($storedEvent === null
-                || (string) ($storedEvent->UID ?? '') !== $uid
-                || $this->email((string) ($storedEvent->ORGANIZER ?? '')) !== $organizerEmail
-                || (int) ($replyEvent->SEQUENCE ?? 0) !== (int) ($storedEvent->SEQUENCE ?? 0)
-            ) {
-                throw new \RuntimeException('Reply is stale or does not match the stored event');
-            }
+                    $provisioner = $this->container->get(BaikalPrincipalProvisioner::class);
+                    $password = $provisioner->provision(
+                        $principal,
+                        $organizerEmail,
+                        trim((string) ($input['name'] ?? '')) ?: $organizerEmail,
+                        $mailAccountId
+                    );
+                    $location = $provisioner->findOwnedCalendarObject($principal, $uid, $calendarUris);
+                    if ($location === null) {
+                        throw new \RuntimeException('Original calendar event was not found');
+                    }
 
-            $matched = false;
-            foreach ($storedEvent->select('ATTENDEE') as $attendee) {
-                if ($this->email((string) $attendee) === $respondingEmail) {
-                    $attendee['PARTSTAT'] = $respondingStatus;
-                    $attendee['RSVP'] = 'FALSE';
-                    $matched = true;
+                    $path = sprintf(
+                        'calendars/%s/%s/%s',
+                        rawurlencode($principal),
+                        rawurlencode($location['calendar_uri']),
+                        rawurlencode($location['object_uri'])
+                    );
+                    $client = new Client([
+                        'base_uri' => rtrim($this->container->get('caldav.baseurl'), '/') . '/',
+                        'auth' => [$principal, $password],
+                        'connect_timeout' => 3,
+                        'timeout' => 15,
+                        'http_errors' => false,
+                    ]);
+                    $current = $client->get($path);
+                    if ($current->getStatusCode() !== 200) {
+                        throw new \RuntimeException('Original calendar event could not be loaded');
+                    }
+                    $storedCalendar = Reader::read((string) $current->getBody(), Reader::OPTION_FORGIVING);
+                    $storedEvent = $storedCalendar->VEVENT;
+                    if ($storedEvent === null
+                        || (string) ($storedEvent->UID ?? '') !== $uid
+                        || $this->email((string) ($storedEvent->ORGANIZER ?? '')) !== $organizerEmail
+                        || (int) ($replyEvent->SEQUENCE ?? 0) !== (int) ($storedEvent->SEQUENCE ?? 0)
+                    ) {
+                        throw new \RuntimeException('Reply is stale or does not match the stored event');
+                    }
+
+                    $matched = false;
+                    foreach ($storedEvent->select('ATTENDEE') as $attendee) {
+                        if ($this->email((string) $attendee) === $respondingEmail) {
+                            $attendee['PARTSTAT'] = $respondingStatus;
+                            $attendee['RSVP'] = 'FALSE';
+                            $matched = true;
+                        }
+                    }
+                    if (!$matched) {
+                        throw new \RuntimeException('Responding attendee is not part of the stored event');
+                    }
+
+                    unset($storedCalendar->METHOD);
+                    $updated = $client->put($path, [
+                        'headers' => [
+                            'Content-Type' => 'text/calendar; charset=utf-8',
+                            'If-Match' => $current->getHeaderLine('ETag'),
+                        ],
+                        'body' => $storedCalendar->serialize(),
+                    ]);
+                    if ($updated->getStatusCode() !== 204) {
+                        throw new \RuntimeException('CalDAV rejected the participant status update');
+                    }
+
+                    return $this->json($response, [
+                        'updated' => true,
+                        'attendee' => $respondingEmail,
+                        'status' => strtolower($respondingStatus),
+                    ]);
                 }
-            }
-            if (!$matched) {
-                throw new \RuntimeException('Responding attendee is not part of the stored event');
-            }
-
-            unset($storedCalendar->METHOD);
-            $updated = $client->put($path, [
-                'headers' => [
-                    'Content-Type' => 'text/calendar; charset=utf-8',
-                    'If-Match' => $current->getHeaderLine('ETag'),
-                ],
-                'body' => $storedCalendar->serialize(),
-            ]);
-            if ($updated->getStatusCode() !== 204) {
-                throw new \RuntimeException('CalDAV rejected the participant status update');
-            }
-
-            return $this->json($response, [
-                'updated' => true,
-                'attendee' => $respondingEmail,
-                'status' => strtolower($respondingStatus),
-            ]);
+            );
         } catch (\Throwable $exception) {
             $this->container->get('monolog')->warning('Calendar invitation reply failed', [
                 'reason' => $exception->getMessage(),

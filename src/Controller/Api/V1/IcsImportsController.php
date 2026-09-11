@@ -52,19 +52,21 @@ final class IcsImportsController extends ApiController
     {
         return $this->guarded($response, function () use ($request, $response, $args): ResponseInterface {
             $calendarId = trim((string) ($args['id'] ?? ''));
-            $binding = $this->access()->bindingById($calendarId);
-            if ($binding === null || !$binding->isWritable()) {
-                throw new ApiNotFound();
-            }
-            $input = $this->body($request);
-            $result = $this->coordinator()->commit(
-                $this->identity($binding->mailAccountId()),
+            return $this->access()->withActiveBinding(
                 $calendarId,
-                trim((string) ($input['import_token'] ?? '')),
-                trim((string) ($input['duplicate_strategy'] ?? 'skip')),
-            );
+                true,
+                function ($binding) use ($request, $response, $calendarId): ResponseInterface {
+                    $input = $this->body($request);
+                    $result = $this->coordinator()->commit(
+                        $this->identity($binding->mailAccountId()),
+                        $calendarId,
+                        trim((string) ($input['import_token'] ?? '')),
+                        trim((string) ($input['duplicate_strategy'] ?? 'skip')),
+                    );
 
-            return $this->json($response, [...$result->toArray(), 'errors' => []]);
+                    return $this->json($response, [...$result->toArray(), 'errors' => []]);
+                }
+            );
         });
     }
 

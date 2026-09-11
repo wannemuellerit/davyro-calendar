@@ -36,6 +36,7 @@ use AgenDAV\Data\WebCalFeedState;
 use AgenDAV\Davyro\MailboxCalendar;
 use AgenDAV\Davyro\CalendarAccess;
 use AgenDAV\Repositories\MailboxCalendarBindingsRepository;
+use AgenDAV\Exception\NotFound;
 
 class Create extends JSONController
 {
@@ -54,8 +55,32 @@ class Create extends JSONController
         ServerRequestInterface $request,
         ResponseInterface $response
     ): ResponseInterface {
-        $calendar_home_set = $this->container->get('session')->get('calendar_home_set');
         $mailAccountId = (int) $this->container->get('session')->get('davyro.active_mail_account_id', 0);
+        $access = $this->container->get(CalendarAccess::class);
+        if ($access->isDavyroSession()) {
+            if ($mailAccountId < 1) {
+                return $response->withStatus(404);
+            }
+            try {
+                return $access->withActiveMailbox(
+                    $mailAccountId,
+                    fn (): ResponseInterface => $this->executeMutation($input, $response, $access, $mailAccountId)
+                );
+            } catch (NotFound) {
+                return $response->withStatus(404);
+            }
+        }
+
+        return $this->executeMutation($input, $response, $access, $mailAccountId);
+    }
+
+    private function executeMutation(
+        ParameterBag $input,
+        ResponseInterface $response,
+        CalendarAccess $access,
+        int $mailAccountId,
+    ): ResponseInterface {
+        $calendar_home_set = $this->container->get('session')->get('calendar_home_set');
         $calendarUri = $mailAccountId > 0
             ? MailboxCalendar::customUriPrefix($mailAccountId).Uuid::generate()
             : Uuid::generate();
@@ -67,7 +92,6 @@ class Create extends JSONController
 
         if ($input->getBoolean('is_subscribed') === true) {
             // If the calendar is a subscription, we save it in the database
-            $access = $this->container->get(CalendarAccess::class);
             if (!$access->isDavyroSession() || $mailAccountId < 1) {
                 return $this->generateException($response, $this->container->get('translator')->trans('messages.error_invalidinput'));
             }
@@ -108,7 +132,6 @@ class Create extends JSONController
             ]);
 
             $this->client->createCalendar($calendar);
-            $access = $this->container->get(CalendarAccess::class);
             if ($access->isDavyroSession()) {
                 try {
                     $this->container->get(MailboxCalendarBindingsRepository::class)->createAdditional(

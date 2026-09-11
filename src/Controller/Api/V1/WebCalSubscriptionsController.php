@@ -48,32 +48,38 @@ final class WebCalSubscriptionsController extends ApiController
     {
         return $this->guarded($response, function () use ($request, $response, $args): ResponseInterface {
             $mailboxId = $this->mailboxId($args['mailbox_id'] ?? null);
-            $input = $this->body($request);
-            $url = $this->fetcher()->normalizeUrl((string) ($input['url'] ?? ''));
-            $subscriptionId = Uuid::generate();
-            $result = $this->refresh()->refresh(
-                $this->access()->tenantId(),
-                $this->access()->userId(),
+            return $this->access()->withActiveMailbox($mailboxId, function () use (
+                $request,
+                $response,
                 $mailboxId,
-                $subscriptionId,
-                $url,
-                true,
-            );
-            if ($result->state->getStatus() === WebCalFeedState::STATUS_ERROR) {
-                $this->refresh()->remove($this->access()->tenantId(), $this->access()->userId(), $subscriptionId);
-                throw new ApiValidation('The WebCal feed could not be loaded');
-            }
+            ): ResponseInterface {
+                $input = $this->body($request);
+                $url = $this->fetcher()->normalizeUrl((string) ($input['url'] ?? ''));
+                $subscriptionId = Uuid::generate();
+                $result = $this->refresh()->refresh(
+                    $this->access()->tenantId(),
+                    $this->access()->userId(),
+                    $mailboxId,
+                    $subscriptionId,
+                    $url,
+                    true,
+                );
+                if ($result->state->getStatus() === WebCalFeedState::STATUS_ERROR) {
+                    $this->refresh()->remove($this->access()->tenantId(), $this->access()->userId(), $subscriptionId);
+                    throw new ApiValidation('The WebCal feed could not be loaded');
+                }
 
-            $subscription = new Subscription();
-            $subscription->setOwner($this->principal()->getUrl());
-            $subscription->setCalendar(WebCalReference::create($subscriptionId));
-            $subscription->setProperty(self::ID_PROPERTY, $subscriptionId);
-            $subscription->setProperty(self::MAILBOX_PROPERTY, $mailboxId);
-            $subscription->setProperty(Calendar::DISPLAYNAME, $this->name($input['name'] ?? null));
-            $subscription->setProperty(Calendar::COLOR, $this->color($input['color'] ?? '#6875F5'));
-            $this->repository()->save($subscription);
+                $subscription = new Subscription();
+                $subscription->setOwner($this->principal()->getUrl());
+                $subscription->setCalendar(WebCalReference::create($subscriptionId));
+                $subscription->setProperty(self::ID_PROPERTY, $subscriptionId);
+                $subscription->setProperty(self::MAILBOX_PROPERTY, $mailboxId);
+                $subscription->setProperty(Calendar::DISPLAYNAME, $this->name($input['name'] ?? null));
+                $subscription->setProperty(Calendar::COLOR, $this->color($input['color'] ?? '#6875F5'));
+                $this->repository()->save($subscription);
 
-            return $this->json($response, ['data' => $this->dto($subscription)], 201);
+                return $this->json($response, ['data' => $this->dto($subscription)], 201);
+            });
         });
     }
 
@@ -81,30 +87,37 @@ final class WebCalSubscriptionsController extends ApiController
     {
         return $this->guarded($response, function () use ($request, $response, $args): ResponseInterface {
             $mailboxId = $this->mailboxId($args['mailbox_id'] ?? null);
-            $subscription = $this->find((string) ($args['id'] ?? ''), $mailboxId);
-            $input = $this->body($request);
-            if (array_key_exists('url', $input)) {
-                $result = $this->refresh()->refresh(
-                    $this->access()->tenantId(),
-                    $this->access()->userId(),
-                    $mailboxId,
-                    (string) $subscription->getProperty(self::ID_PROPERTY),
-                    $this->fetcher()->normalizeUrl((string) $input['url']),
-                    true,
-                );
-                if ($result->state->getStatus() === WebCalFeedState::STATUS_ERROR) {
-                    throw new ApiValidation('The WebCal feed could not be loaded');
+            return $this->access()->withActiveMailbox($mailboxId, function () use (
+                $request,
+                $response,
+                $args,
+                $mailboxId,
+            ): ResponseInterface {
+                $subscription = $this->find((string) ($args['id'] ?? ''), $mailboxId);
+                $input = $this->body($request);
+                if (array_key_exists('url', $input)) {
+                    $result = $this->refresh()->refresh(
+                        $this->access()->tenantId(),
+                        $this->access()->userId(),
+                        $mailboxId,
+                        (string) $subscription->getProperty(self::ID_PROPERTY),
+                        $this->fetcher()->normalizeUrl((string) $input['url']),
+                        true,
+                    );
+                    if ($result->state->getStatus() === WebCalFeedState::STATUS_ERROR) {
+                        throw new ApiValidation('The WebCal feed could not be loaded');
+                    }
                 }
-            }
-            if (array_key_exists('name', $input)) {
-                $subscription->setProperty(Calendar::DISPLAYNAME, $this->name($input['name']));
-            }
-            if (array_key_exists('color', $input)) {
-                $subscription->setProperty(Calendar::COLOR, $this->color($input['color']));
-            }
-            $this->repository()->save($subscription);
+                if (array_key_exists('name', $input)) {
+                    $subscription->setProperty(Calendar::DISPLAYNAME, $this->name($input['name']));
+                }
+                if (array_key_exists('color', $input)) {
+                    $subscription->setProperty(Calendar::COLOR, $this->color($input['color']));
+                }
+                $this->repository()->save($subscription);
 
-            return $this->json($response, ['data' => $this->dto($subscription)]);
+                return $this->json($response, ['data' => $this->dto($subscription)]);
+            });
         });
     }
 
@@ -112,12 +125,18 @@ final class WebCalSubscriptionsController extends ApiController
     {
         return $this->guarded($response, function () use ($response, $args): ResponseInterface {
             $mailboxId = $this->mailboxId($args['mailbox_id'] ?? null);
-            $subscription = $this->find((string) ($args['id'] ?? ''), $mailboxId);
-            $id = (string) $subscription->getProperty(self::ID_PROPERTY);
-            $this->repository()->remove($subscription);
-            $this->refresh()->remove($this->access()->tenantId(), $this->access()->userId(), $id);
+            return $this->access()->withActiveMailbox($mailboxId, function () use (
+                $response,
+                $args,
+                $mailboxId,
+            ): ResponseInterface {
+                $subscription = $this->find((string) ($args['id'] ?? ''), $mailboxId);
+                $id = (string) $subscription->getProperty(self::ID_PROPERTY);
+                $this->repository()->remove($subscription);
+                $this->refresh()->remove($this->access()->tenantId(), $this->access()->userId(), $id);
 
-            return $response->withStatus(204);
+                return $response->withStatus(204);
+            });
         });
     }
 
@@ -125,17 +144,23 @@ final class WebCalSubscriptionsController extends ApiController
     {
         return $this->guarded($response, function () use ($response, $args): ResponseInterface {
             $mailboxId = $this->mailboxId($args['mailbox_id'] ?? null);
-            $subscription = $this->find((string) ($args['id'] ?? ''), $mailboxId);
-            $this->refresh()->refresh(
-                $this->access()->tenantId(),
-                $this->access()->userId(),
+            return $this->access()->withActiveMailbox($mailboxId, function () use (
+                $response,
+                $args,
                 $mailboxId,
-                (string) $subscription->getProperty(self::ID_PROPERTY),
-                null,
-                true,
-            );
+            ): ResponseInterface {
+                $subscription = $this->find((string) ($args['id'] ?? ''), $mailboxId);
+                $this->refresh()->refresh(
+                    $this->access()->tenantId(),
+                    $this->access()->userId(),
+                    $mailboxId,
+                    (string) $subscription->getProperty(self::ID_PROPERTY),
+                    null,
+                    true,
+                );
 
-            return $this->json($response, ['data' => $this->dto($subscription)]);
+                return $this->json($response, ['data' => $this->dto($subscription)]);
+            });
         });
     }
 

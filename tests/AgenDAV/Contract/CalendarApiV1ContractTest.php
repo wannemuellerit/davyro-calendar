@@ -174,6 +174,56 @@ final class CalendarApiV1ContractTest extends TestCase
         }
     }
 
+    public function testBrowserInvitationResponseCarriesTheMailboxLifecycleVersion(): void
+    {
+        $source = file_get_contents(dirname(__DIR__, 3).'/src/Controller/Api/V1/InvitationsController.php');
+        self::assertIsString($source);
+        self::assertStringContainsString(
+            "'lifecycle_version' => (int) (\$mailbox['lifecycle_version'] ?? 0)",
+            $source
+        );
+    }
+
+    /** @dataProvider lifecycleProtectedMutationRoutes */
+    public function testEveryCalendarMutationUsesTheLifecycleLock(string $relativeFile, string $guard): void
+    {
+        $source = file_get_contents(dirname(__DIR__, 3).'/'.$relativeFile);
+        self::assertIsString($source);
+        self::assertStringContainsString($guard, $source, $relativeFile.' lost its lifecycle mutation guard');
+    }
+
+    /** @return iterable<string, array{string, string}> */
+    public static function lifecycleProtectedMutationRoutes(): iterable
+    {
+        foreach ([
+            'events' => 'src/Controller/Api/V1/EventsController.php',
+            'calendars' => 'src/Controller/Api/V1/CalendarsController.php',
+            'ics imports' => 'src/Controller/Api/V1/IcsImportsController.php',
+            'shares' => 'src/Controller/Api/V1/SharesController.php',
+            'publications' => 'src/Controller/Api/V1/PublicationsController.php',
+            'delivery retry' => 'src/Controller/Api/V1/EventDeliveryController.php',
+        ] as $name => $file) {
+            yield 'native '.$name => [$file, 'withActiveBinding('];
+        }
+        foreach ([
+            'event save' => 'src/Controller/Event/Save.php',
+            'event alter' => 'src/Controller/Event/Alter.php',
+            'event delete' => 'src/Controller/Event/Delete.php',
+            'calendar save' => 'src/Controller/Calendars/Save.php',
+            'calendar delete' => 'src/Controller/Calendars/Delete.php',
+        ] as $name => $file) {
+            yield 'legacy '.$name => [$file, 'withActiveCalendarUrls('];
+        }
+        yield 'legacy calendar create' => [
+            'src/Controller/Calendars/Create.php',
+            'withActiveMailbox(',
+        ];
+        yield 'internal ICS import' => [
+            'src/Controller/Api/V1/InternalIcsImportsController.php',
+            'MailboxLifecycleGate::class',
+        ];
+    }
+
     /** @return iterable<string, array{string, string[]}> */
     public static function producerFieldContract(): iterable
     {

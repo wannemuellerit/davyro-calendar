@@ -74,6 +74,55 @@ final class InternalApiAuthMiddlewareTest extends TestCase
         $this->assertSame(401, $middleware->process($request, $handler)->getStatusCode());
     }
 
+    public function testFutureBoundaryTimestampKeepsNonceForEntireAcceptanceWindow(): void
+    {
+        $secret = str_repeat('s', 40);
+        $db = DriverManager::getConnection(['driver' => 'pdo_sqlite', 'memory' => true]);
+        $db->executeStatement('CREATE TABLE davyro_internal_nonces (nonce_hash VARCHAR(64) PRIMARY KEY, expires_at TEXT)');
+        $container = new class($secret, $db) implements ContainerInterface {
+            public function __construct(private string $secret, private $db)
+            {
+            }
+            public function get(string $id): mixed
+            {
+                return $id === 'db' ? $this->db : $this->secret;
+            }
+            public function has(string $id): bool
+            {
+                return in_array($id, ['db', 'davyro.bridge_shared_secret'], true);
+            }
+        };
+        $timestamp = time() + 300;
+        $nonce = str_repeat('f', 24);
+        $path = '/internal/davyro/mailboxes/archive';
+        $body = '{"tenant_id":1}';
+        $signature = hash_hmac('sha256', implode("\n", [(string) $timestamp, $nonce, 'POST', $path, $body]), $secret);
+        $request = (new ServerRequestFactory())->createServerRequest('POST', $path)
+            ->withHeader('Authorization', 'Bearer '.$secret)
+            ->withHeader('X-Davyro-Timestamp', (string) $timestamp)
+            ->withHeader('X-Davyro-Nonce', $nonce)
+            ->withHeader('X-Davyro-Signature', $signature);
+        $request->getBody()->write($body);
+        $handler = new class implements RequestHandlerInterface {
+            public function handle(ServerRequestInterface $request): ResponseInterface
+            {
+                return new Response(204);
+            }
+        };
+
+        $this->assertSame(204, (new InternalApiAuthMiddleware($container))->process($request, $handler)->getStatusCode());
+        $expiresAt = $db->fetchOne(
+            'SELECT expires_at FROM davyro_internal_nonces WHERE nonce_hash = :nonce_hash',
+            ['nonce_hash' => hash('sha256', $nonce)]
+        );
+
+        self::assertSame(
+            gmdate('Y-m-d H:i:s', $timestamp + 305),
+            $expiresAt,
+            'The nonce must outlive the complete validity window of a future-boundary timestamp.'
+        );
+    }
+
     public function testGetSignatureIncludesTheExactQueryStringAndEmptyBody(): void
     {
         [$middleware, $handler, $secret] = $this->fixture();

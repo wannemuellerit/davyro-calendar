@@ -35,17 +35,23 @@ final class AvailabilityController extends ApiController
     {
         return $this->guarded($response, function () use ($request, $response, $args): ResponseInterface {
             $mailboxId = $this->mailboxId($args['id'] ?? null);
-            $input = $this->body($request);
-            $availability = $this->service()->replace(
-                $this->access()->tenantId(),
-                $this->access()->userId(),
+            return $this->access()->withActiveMailbox($mailboxId, function () use (
+                $request,
+                $response,
                 $mailboxId,
-                trim((string) ($input['timezone'] ?? '')),
-                is_array($input['weekly_windows'] ?? null) ? $input['weekly_windows'] : throw new ApiValidation('weekly_windows must be an array'),
-                is_array($input['exceptions'] ?? null) ? $input['exceptions'] : throw new ApiValidation('exceptions must be an array'),
-            );
+            ): ResponseInterface {
+                $input = $this->body($request);
+                $availability = $this->service()->replace(
+                    $this->access()->tenantId(),
+                    $this->access()->userId(),
+                    $mailboxId,
+                    trim((string) ($input['timezone'] ?? '')),
+                    is_array($input['weekly_windows'] ?? null) ? $input['weekly_windows'] : throw new ApiValidation('weekly_windows must be an array'),
+                    is_array($input['exceptions'] ?? null) ? $input['exceptions'] : throw new ApiValidation('exceptions must be an array'),
+                );
 
-            return $this->json($response, ['data' => $this->dto($availability)]);
+                return $this->json($response, ['data' => $this->dto($availability)]);
+            });
         });
     }
 

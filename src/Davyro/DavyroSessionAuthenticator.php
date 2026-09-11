@@ -18,6 +18,13 @@ final class DavyroSessionAuthenticator
     public function authenticate(string $ticket, bool $embedded = false): array
     {
         $payload = $this->container->get(CalendarBridgeClient::class)->consumeTicket($ticket);
+
+        return $this->authenticatePayload($payload, $embedded);
+    }
+
+    /** @param array<string, mixed> $payload @return array<string, mixed> */
+    private function authenticatePayload(array $payload, bool $embedded): array
+    {
         $user = $payload['user'] ?? null;
         if (!is_array($user)) {
             throw new \RuntimeException('Missing calendar user');
@@ -44,45 +51,97 @@ final class DavyroSessionAuthenticator
         }
         $selectedId = (int) $selectedMailbox['id'];
 
-        $password = $this->container->get(BaikalPrincipalProvisioner::class)
-            ->provisionMailboxes($principal, $mailboxes, $displayName, $selectedId);
-        if (!(new Authentication($this->container))->processLogin($principal, $password)) {
-            throw new \RuntimeException('Provisioned calendar account could not authenticate');
-        }
-
-        $session = $this->container->get('session');
-        $session->set('davyro.user_id', $userId);
-        $session->set('davyro.tenant_id', $tenantId);
-        $session->set('davyro.tenant_prefix', $tenantPrefix);
-        $session->set('davyro.email', $email);
-        $session->set('davyro.mailboxes', $mailboxes);
-        $session->set('davyro.initial_mail_account_id', $selectedId);
-        $session->set('davyro.active_mail_account_id', $selectedId);
-        $session->set('davyro.embedded', $embedded);
-
-        $home = (string) $session->get('calendar_home_set', '');
-        if ($home === '') {
-            throw new \RuntimeException('Calendar home is unavailable');
-        }
-        $bindings = $this->container->get(MailboxCalendarBindingsRepository::class);
-        foreach ($mailboxes as $mailbox) {
-            $uri = MailboxCalendar::uri((int) $mailbox['id']);
-            $bindings->ensurePrimary(
+        return $this->container->get(MailboxLifecycleGate::class)->run(
+            $tenantId,
+            $userId,
+            $mailboxes,
+            function () use (
+                $embedded,
+                $user,
+                $principal,
+                $tenantPrefix,
                 $tenantId,
                 $userId,
-                (int) $mailbox['id'],
-                $principal,
-                $uri,
-                rtrim($home, '/').'/'.$uri.'/',
-                'Kalender · '.$mailbox['email']
-            );
-        }
+                $mailboxes,
+                $email,
+                $displayName,
+                $selectedId,
+            ): array {
+                $provisioner = $this->container->get(BaikalPrincipalProvisioner::class);
+                $mailboxIds = array_map(static fn (array $mailbox): int => $mailbox['id'], $mailboxes);
+                $repairRequired = !$provisioner->isProvisioned($principal, $mailboxIds);
+                $password = $repairRequired
+                    ? $provisioner->provisionMailboxes($principal, $mailboxes, $displayName, $selectedId)
+                    : $provisioner->passwordFor($principal);
+                if (!(new Authentication($this->container))->processLogin($principal, $password)) {
+                    // A lifecycle operation can still be in flight or an administrator
+                    // may have repaired only part of Baikal. Perform one idempotent
+                    // write-side repair, then fail closed if authentication still does
+                    // not work.
+                    if (!$repairRequired) {
+                        $password = $provisioner->provisionMailboxes(
+                            $principal,
+                            $mailboxes,
+                            $displayName,
+                            $selectedId
+                        );
+                    }
+                    if (!(new Authentication($this->container))->processLogin($principal, $password)) {
+                        throw new \RuntimeException('Provisioned calendar account could not authenticate');
+                    }
+                }
 
-        return [
-            'user' => $user,
-            'mailboxes' => $mailboxes,
-            'selected_mailbox_id' => $selectedId,
-        ];
+                $session = $this->container->get('session');
+                $session->set('davyro.user_id', $userId);
+                $session->set('davyro.tenant_id', $tenantId);
+                $session->set('davyro.tenant_prefix', $tenantPrefix);
+                $session->set('davyro.email', $email);
+                $session->set('davyro.mailboxes', $mailboxes);
+                $session->set('davyro.initial_mail_account_id', $selectedId);
+                $session->set('davyro.active_mail_account_id', $selectedId);
+                $session->set('davyro.embedded', $embedded);
+
+                $home = (string) $session->get('calendar_home_set', '');
+                if ($home === '') {
+                    throw new \RuntimeException('Calendar home is unavailable');
+                }
+                $bindings = $this->container->get(MailboxCalendarBindingsRepository::class);
+                foreach ($mailboxes as $mailbox) {
+                    $uri = MailboxCalendar::uri((int) $mailbox['id']);
+                    $primary = null;
+                    foreach ($bindings->findForMailbox(
+                        $tenantId,
+                        $userId,
+                        (int) $mailbox['id']
+                    ) as $candidate) {
+                        if ($candidate->isPrimary()) {
+                            $primary = $candidate;
+                            break;
+                        }
+                    }
+                    if ($primary === null
+                        || !hash_equals($principal, $primary->principal())
+                        || !hash_equals($uri, $primary->calendarUri())
+                    ) {
+                        $bindings->ensurePrimary(
+                            $tenantId,
+                            $userId,
+                            (int) $mailbox['id'],
+                            $principal,
+                            $uri,
+                            rtrim($home, '/').'/'.$uri.'/',
+                            'Kalender · '.$mailbox['email']
+                        );
+                    }
+                }
+
+                return [
+                    'user' => $user,
+                    'mailboxes' => $mailboxes,
+                    'selected_mailbox_id' => $selectedId,
+                ];
+            }
+        );
     }
 
     /** @param array<string, mixed> $payload */
@@ -96,7 +155,7 @@ final class DavyroSessionAuthenticator
         return $value;
     }
 
-    /** @return array<int, array{id:int,email:string,name:string}> */
+    /** @return array<int, array{id:int,email:string,name:string,organizer_aliases:string[],lifecycle_version:int}> */
     private function validatedMailboxes(mixed $value): array
     {
         if (!is_array($value) || $value === []) {
@@ -110,17 +169,39 @@ final class DavyroSessionAuthenticator
             $id = (int) ($mailbox['id'] ?? 0);
             $email = strtolower(trim((string) ($mailbox['email'] ?? '')));
             $name = trim((string) ($mailbox['name'] ?? '')) ?: $email;
+            $aliases = $mailbox['organizer_aliases'] ?? [];
+            $lifecycleVersion = filter_var(
+                $mailbox['lifecycle_version'] ?? null,
+                FILTER_VALIDATE_INT,
+                ['options' => ['min_range' => 1]]
+            );
             if ($id < 1
                 || isset($result[$id])
                 || filter_var($email, FILTER_VALIDATE_EMAIL) === false
+                || strlen($email) > 80
                 || mb_strlen($name) > 160
+                || !is_array($aliases)
+                || count($aliases) > 100
+                || $lifecycleVersion === false
             ) {
                 throw new \RuntimeException('Invalid calendar mailbox');
+            }
+            $validatedAliases = [];
+            foreach ($aliases as $alias) {
+                $alias = strtolower(trim((string) $alias));
+                if (filter_var($alias, FILTER_VALIDATE_EMAIL) === false || strlen($alias) > 80) {
+                    throw new \RuntimeException('Invalid calendar mailbox organizer alias');
+                }
+                if (!hash_equals($email, $alias)) {
+                    $validatedAliases[$alias] = true;
+                }
             }
             $result[$id] = [
                 'id' => $id,
                 'email' => $email,
                 'name' => $name,
+                'organizer_aliases' => array_keys($validatedAliases),
+                'lifecycle_version' => $lifecycleVersion,
             ];
         }
 
@@ -128,8 +209,8 @@ final class DavyroSessionAuthenticator
     }
 
     /**
-     * @param array<int, array{id:int,email:string,name:string}> $mailboxes
-     * @return array{id:int,email:string,name:string}
+     * @param array<int, array{id:int,email:string,name:string,organizer_aliases:string[],lifecycle_version:int}> $mailboxes
+     * @return array{id:int,email:string,name:string,organizer_aliases:string[],lifecycle_version:int}
      */
     private function selectMailbox(array $mailboxes, mixed $selectedId): array
     {

@@ -15,6 +15,7 @@ use Slim\Psr7\Response;
 final class InternalApiAuthMiddleware implements MiddlewareInterface
 {
     private const MAX_CLOCK_SKEW_SECONDS = 300;
+    private const NONCE_EXPIRY_SAFETY_SECONDS = 5;
 
     public function __construct(private readonly ContainerInterface $container)
     {
@@ -27,10 +28,11 @@ final class InternalApiAuthMiddleware implements MiddlewareInterface
         $timestamp = $request->getHeaderLine('X-Davyro-Timestamp');
         $nonce = $request->getHeaderLine('X-Davyro-Nonce');
         $signature = strtolower($request->getHeaderLine('X-Davyro-Signature'));
+        $now = time();
 
         if ($bearer === '' || !hash_equals($secret, $bearer)
             || preg_match('/^[0-9]{10}$/', $timestamp) !== 1
-            || abs(time() - (int) $timestamp) > self::MAX_CLOCK_SKEW_SECONDS
+            || abs($now - (int) $timestamp) > self::MAX_CLOCK_SKEW_SECONDS
             || preg_match('/^[A-Za-z0-9_-]{20,128}$/', $nonce) !== 1
             || preg_match('/^[0-9a-f]{64}$/', $signature) !== 1
         ) {
@@ -55,12 +57,19 @@ final class InternalApiAuthMiddleware implements MiddlewareInterface
         /** @var Connection $db */
         $db = $this->container->get('db');
         $db->executeStatement('DELETE FROM davyro_internal_nonces WHERE expires_at < :now', [
-            'now' => gmdate('Y-m-d H:i:s'),
+            'now' => gmdate('Y-m-d H:i:s', $now),
         ]);
         try {
             $db->insert('davyro_internal_nonces', [
                 'nonce_hash' => hash('sha256', $nonce),
-                'expires_at' => gmdate('Y-m-d H:i:s', time() + self::MAX_CLOCK_SKEW_SECONDS),
+                // A timestamp at the positive skew boundary remains valid until
+                // timestamp + MAX_CLOCK_SKEW_SECONDS. Keep the nonce for that
+                // complete window so cleanup can never make a signed request
+                // replayable while its timestamp is still accepted.
+                'expires_at' => gmdate(
+                    'Y-m-d H:i:s',
+                    (int) $timestamp + self::MAX_CLOCK_SKEW_SECONDS + self::NONCE_EXPIRY_SAFETY_SECONDS
+                ),
             ]);
         } catch (\Doctrine\DBAL\Exception\UniqueConstraintViolationException) {
             return $this->unauthorized();

@@ -10,6 +10,7 @@ final readonly class MailAttachmentImportRequest
         public int $tenantId,
         public int $userId,
         public int $mailAccountId,
+        public int $lifecycleVersion,
         public string $calendarId,
         public string $messageId,
         public string $attachmentId,
@@ -32,6 +33,7 @@ final readonly class MailAttachmentImportRequest
             (int) ($payload['tenant_id'] ?? 0),
             (int) ($payload['user_id'] ?? 0),
             (int) ($payload['mail_account_id'] ?? 0),
+            (int) ($payload['lifecycle_version'] ?? 0),
             trim((string) ($payload['target_calendar_id'] ?? '')),
             trim((string) ($source['message_id'] ?? $payload['message_id'] ?? '')),
             trim((string) ($source['attachment_id'] ?? $payload['attachment_id'] ?? '')),
@@ -40,6 +42,7 @@ final readonly class MailAttachmentImportRequest
             $contents,
         );
         if ($request->tenantId < 1 || $request->userId < 1 || $request->mailAccountId < 1
+            || $request->lifecycleVersion < 1
             || $request->calendarId === '' || $request->messageId === '' || $request->attachmentId === ''
             || $request->filename === '') {
             throw new \InvalidArgumentException('ICS attachment import metadata is incomplete');

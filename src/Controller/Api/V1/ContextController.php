@@ -26,15 +26,20 @@ final class ContextController extends ApiController
         $access = $this->container->get(CalendarAccess::class);
         $session = $this->container->get('session');
         $mailboxes = [];
-        foreach ((array) $session->get('davyro.mailboxes', []) as $mailbox) {
-            if (!is_array($mailbox)) {
-                continue;
-            }
+        foreach ($access->mailboxes() as $mailbox) {
             $mailboxes[] = [
                 'id' => $access->publicMailboxId((int) ($mailbox['id'] ?? 0)),
                 'email' => (string) ($mailbox['email'] ?? ''),
                 'name' => (string) ($mailbox['name'] ?? $mailbox['email'] ?? ''),
             ];
+        }
+        if ($mailboxes === []) {
+            return $this->error(
+                $response,
+                'session_stale',
+                'The calendar session no longer contains an active mailbox',
+                410
+            );
         }
         $preferences = $this->container->get('preferences.repository')
             ->userPreferences((string) $session->get('username'))->getAll();

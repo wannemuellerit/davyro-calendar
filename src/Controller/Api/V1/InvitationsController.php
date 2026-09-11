@@ -48,6 +48,7 @@ final class InvitationsController extends ApiController
                 'principal' => $this->access()->principal(),
                 'tenant_prefix' => (string) $this->container->get('session')->get('davyro.tenant_prefix', ''),
                 'mail_account_id' => $mailAccountId,
+                'lifecycle_version' => (int) ($mailbox['lifecycle_version'] ?? 0),
                 'email' => (string) ($mailbox['email'] ?? ''),
                 'name' => (string) ($mailbox['name'] ?? $mailbox['email'] ?? ''),
                 'status' => $status,

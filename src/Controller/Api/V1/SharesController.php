@@ -75,98 +75,119 @@ final class SharesController extends ApiController
     public function create(ServerRequestInterface $request, ResponseInterface $response, array $args): ResponseInterface
     {
         return $this->guarded($response, function () use ($request, $response, $args): ResponseInterface {
-            $binding = $this->ownedBinding((string) ($args['id'] ?? ''));
-            $input = $this->body($request);
-            // `user_id` is the browser-facing opaque candidate ULID. Keep the
-            // candidate_id alias for callers that use the internal naming.
-            $candidateId = strtoupper(trim((string) ($input['candidate_id'] ?? $input['user_id'] ?? '')));
-            if (preg_match('/^[0-9A-HJKMNP-TV-Z]{26}$/', $candidateId) !== 1) {
-                throw new ApiValidation('candidate_id is invalid');
-            }
-            $permission = strtolower(trim((string) ($input['permission'] ?? 'read')));
-            if (!in_array($permission, ['read', 'write'], true)) {
-                throw new ApiValidation('permission must be read or write');
-            }
+            return $this->access()->withActiveBinding(
+                (string) ($args['id'] ?? ''),
+                true,
+                function (MailboxCalendarBinding $binding) use ($request, $response): ResponseInterface {
+                    $this->assertOwnedBinding($binding);
+                    $input = $this->body($request);
+                    // `user_id` is the browser-facing opaque candidate ULID. Keep the
+                    // candidate_id alias for callers that use the internal naming.
+                    $candidateId = strtoupper(trim((string) ($input['candidate_id'] ?? $input['user_id'] ?? '')));
+                    if (preg_match('/^[0-9A-HJKMNP-TV-Z]{26}$/', $candidateId) !== 1) {
+                        throw new ApiValidation('candidate_id is invalid');
+                    }
+                    $permission = strtolower(trim((string) ($input['permission'] ?? 'read')));
+                    if (!in_array($permission, ['read', 'write'], true)) {
+                        throw new ApiValidation('permission must be read or write');
+                    }
 
-            $access = $this->access();
-            $candidates = $this->bridge()->shareCandidates(
-                $access->tenantId(),
-                $access->userId(),
-                '',
-                $candidateId
-            );
-            $candidate = count($candidates) === 1 ? $candidates[0] : null;
-            if ($candidate === null
-                || !hash_equals($candidateId, $candidate['id'])
-                || !$this->candidateBelongsToTenant($candidate['principal'])
-                || $candidate['principal'] === $access->principal()
-            ) {
-                throw new ApiNotFound();
-            }
+                    $access = $this->access();
+                    $candidates = $this->bridge()->shareCandidates(
+                        $access->tenantId(),
+                        $access->userId(),
+                        '',
+                        $candidateId
+                    );
+                    $candidate = count($candidates) === 1 ? $candidates[0] : null;
+                    if ($candidate === null
+                        || !hash_equals($candidateId, $candidate['id'])
+                        || !$this->candidateBelongsToTenant($candidate['principal'])
+                        || $candidate['principal'] === $access->principal()
+                    ) {
+                        throw new ApiNotFound();
+                    }
 
-            $this->container->get(BaikalPrincipalProvisioner::class)->provisionPrincipal(
-                $candidate['principal'],
-                $candidate['email'],
-                $candidate['name']
-            );
-            $with = $this->principalUrl($candidate['principal']);
-            $shares = $this->sharesOn($binding);
-            $share = null;
-            foreach ($shares as $existing) {
-                if ($this->sameUrl((string) $existing->getWith(), $with)) {
-                    $share = $existing;
-                    break;
+                    $this->container->get(BaikalPrincipalProvisioner::class)->provisionPrincipal(
+                        $candidate['principal'],
+                        $candidate['email'],
+                        $candidate['name']
+                    );
+                    $with = $this->principalUrl($candidate['principal']);
+                    $shares = $this->sharesOn($binding);
+                    $share = null;
+                    foreach ($shares as $existing) {
+                        if ($this->sameUrl((string) $existing->getWith(), $with)) {
+                            $share = $existing;
+                            break;
+                        }
+                    }
+                    if ($share === null) {
+                        $share = new Share();
+                        $share->setOwner((string) $this->container->get('session')->get('principal_url'));
+                        $share->setCalendar($binding->calendarUrl());
+                        $share->setWith($with);
+                        $shares[] = $share;
+                    }
+                    $share->setWritePermission($permission === 'write');
+                    $share->setProperty('davyro.candidate_id', $candidateId);
+
+                    $this->applyAcl($binding, $shares);
+                    $this->shares()->save($share);
+
+                    return $this->json($response, [
+                        'data' => $this->shareDto($binding, $share, $candidate['name'], $candidate['email']),
+                    ], 201);
                 }
-            }
-            if ($share === null) {
-                $share = new Share();
-                $share->setOwner((string) $this->container->get('session')->get('principal_url'));
-                $share->setCalendar($binding->calendarUrl());
-                $share->setWith($with);
-                $shares[] = $share;
-            }
-            $share->setWritePermission($permission === 'write');
-            $share->setProperty('davyro.candidate_id', $candidateId);
-
-            $this->applyAcl($binding, $shares);
-            $this->shares()->save($share);
-
-            return $this->json($response, [
-                'data' => $this->shareDto($binding, $share, $candidate['name'], $candidate['email']),
-            ], 201);
+            );
         });
     }
 
     public function delete(ServerRequestInterface $request, ResponseInterface $response, array $args): ResponseInterface
     {
         return $this->guarded($response, function () use ($response, $args): ResponseInterface {
-            $binding = $this->ownedBinding((string) ($args['id'] ?? ''));
-            $shareId = trim((string) ($args['share_id'] ?? ''));
-            $target = null;
-            $remaining = [];
-            foreach ($this->sharesOn($binding) as $share) {
-                if (hash_equals($this->shareId($binding, $share), $shareId)) {
-                    $target = $share;
-                } else {
-                    $remaining[] = $share;
+            return $this->access()->withActiveBinding(
+                (string) ($args['id'] ?? ''),
+                true,
+                function (MailboxCalendarBinding $binding) use ($response, $args): ResponseInterface {
+                    $this->assertOwnedBinding($binding);
+                    $shareId = trim((string) ($args['share_id'] ?? ''));
+                    $target = null;
+                    $remaining = [];
+                    foreach ($this->sharesOn($binding) as $share) {
+                        if (hash_equals($this->shareId($binding, $share), $shareId)) {
+                            $target = $share;
+                        } else {
+                            $remaining[] = $share;
+                        }
+                    }
+                    if ($target === null) {
+                        throw new ApiNotFound();
+                    }
+
+                    $this->applyAcl($binding, $remaining);
+                    $this->shares()->remove($target);
+
+                    return $response->withStatus(204);
                 }
-            }
-            if ($target === null) {
-                throw new ApiNotFound();
-            }
-
-            $this->applyAcl($binding, $remaining);
-            $this->shares()->remove($target);
-
-            return $response->withStatus(204);
+            );
         });
     }
 
     private function ownedBinding(string $id): MailboxCalendarBinding
     {
         $binding = $this->access()->bindingById($id);
-        if ($binding === null
-            || $binding->kind() === MailboxCalendarBinding::KIND_SHARED
+        if ($binding === null) {
+            throw new ApiNotFound();
+        }
+        $this->assertOwnedBinding($binding);
+
+        return $binding;
+    }
+
+    private function assertOwnedBinding(MailboxCalendarBinding $binding): void
+    {
+        if ($binding->kind() === MailboxCalendarBinding::KIND_SHARED
             || $this->access()->ownedBindingByUrl($binding->calendarUrl()) === null
             || !$binding->isWritable()
         ) {
@@ -175,8 +196,6 @@ final class SharesController extends ApiController
         if (!$this->container->get('calendar.sharing')) {
             throw new ApiConflict('Calendar sharing is disabled');
         }
-
-        return $binding;
     }
 
     /** @return Share[] */

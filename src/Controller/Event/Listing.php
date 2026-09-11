@@ -64,12 +64,25 @@ class Listing extends JSONController
         ResponseInterface $response
     ): ResponseInterface {
         $calendar = new Calendar($input->get('calendar'));
-        if ($input->getBoolean('is_subscribed') === true) {
+        $subscribed = $input->getBoolean('is_subscribed');
+        if ($this->container->has(CalendarAccess::class)) {
+            $access = $this->container->get(CalendarAccess::class);
+            if ($access->isDavyroSession()) {
+                $kind = $access->resourceKind((string) $input->get('calendar'));
+                if ($kind === null) {
+                    return $response->withStatus(404);
+                }
+                // Never trust the legacy browser flag to choose between the
+                // CalDAV and external-subscription retrieval paths.
+                $subscribed = $kind === CalendarAccess::RESOURCE_SUBSCRIBED;
+            }
+        }
+        if ($subscribed) {
             $calendar->setSubscribed(true);
         }
         if ($this->container->has(CalendarAccess::class) && !$this->container->get(CalendarAccess::class)->canRead(
             (string) $input->get('calendar'),
-            $input->getBoolean('is_subscribed')
+            $subscribed
         )) {
             return $response->withStatus(404);
         }

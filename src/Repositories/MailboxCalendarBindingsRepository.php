@@ -8,6 +8,7 @@ use AgenDAV\Data\MailboxCalendarBinding;
 use AgenDAV\Uuid;
 use Doctrine\DBAL\ArrayParameterType;
 use Doctrine\DBAL\Connection;
+use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
 
 final class MailboxCalendarBindingsRepository
 {
@@ -25,32 +26,63 @@ final class MailboxCalendarBindingsRepository
         string $name,
         string $color = '#6875F5',
     ): MailboxCalendarBinding {
-        $existing = $this->findExact($tenantId, $userId, $mailAccountId, $principal, $calendarUri, true);
+        $existing = $this->findExact($tenantId, $userId, $mailAccountId, $principal, $calendarUri, true)
+            ?? $this->findPrimaryForMailbox($tenantId, $userId, $mailAccountId, $principal);
         $now = self::now();
 
         if ($existing === null) {
-            $this->connection->insert('davyro_calendar_bindings', [
-                'id' => Uuid::generate(),
-                'tenant_id' => $tenantId,
-                'user_id' => $userId,
-                'mail_account_id' => $mailAccountId,
-                'principal' => $principal,
-                'calendar_uri' => $calendarUri,
-                'calendar_url' => self::canonicalUrl($calendarUrl),
-                'calendar_url_hash' => self::urlHash($calendarUrl),
-                'name' => $name,
-                'color' => self::normalizeColor($color),
-                'kind' => MailboxCalendarBinding::KIND_PRIMARY,
-                'is_primary' => 1,
-                'writable' => 1,
-                'busy_enabled' => 1,
-                'archived_at' => null,
-                'purge_after' => null,
-                'created_at' => $now,
-                'updated_at' => $now,
-            ]);
+            try {
+                $this->connection->insert('davyro_calendar_bindings', [
+                    'id' => Uuid::generate(),
+                    'tenant_id' => $tenantId,
+                    'user_id' => $userId,
+                    'mail_account_id' => $mailAccountId,
+                    'principal' => $principal,
+                    'calendar_uri' => $calendarUri,
+                    'calendar_url' => self::canonicalUrl($calendarUrl),
+                    'calendar_url_hash' => self::urlHash($calendarUrl),
+                    'name' => $name,
+                    'color' => self::normalizeColor($color),
+                    'kind' => MailboxCalendarBinding::KIND_PRIMARY,
+                    'is_primary' => 1,
+                    'writable' => 1,
+                    'busy_enabled' => 1,
+                    'archived_at' => null,
+                    'purge_after' => null,
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ]);
+            } catch (UniqueConstraintViolationException) {
+                // Concurrent lifecycle and first-open repair requests use the
+                // same deterministic binding key. The winner already created
+                // the desired row, so the loser can safely converge on it.
+                $existing = $this->findExact(
+                    $tenantId,
+                    $userId,
+                    $mailAccountId,
+                    $principal,
+                    $calendarUri,
+                    true
+                );
+                if ($existing === null) {
+                    throw new \RuntimeException('Conflicting primary calendar binding');
+                }
+                $this->connection->update('davyro_calendar_bindings', [
+                    'calendar_uri' => $calendarUri,
+                    'calendar_url' => self::canonicalUrl($calendarUrl),
+                    'calendar_url_hash' => self::urlHash($calendarUrl),
+                    'name' => $name,
+                    'kind' => MailboxCalendarBinding::KIND_PRIMARY,
+                    'is_primary' => 1,
+                    'writable' => 1,
+                    'archived_at' => null,
+                    'purge_after' => null,
+                    'updated_at' => $now,
+                ], ['id' => $existing->id()]);
+            }
         } else {
             $this->connection->update('davyro_calendar_bindings', [
+                'calendar_uri' => $calendarUri,
                 'calendar_url' => self::canonicalUrl($calendarUrl),
                 'calendar_url_hash' => self::urlHash($calendarUrl),
                 'name' => $name,
@@ -263,24 +295,33 @@ final class MailboxCalendarBindingsRepository
     }
 
     /** @return MailboxCalendarBinding[] */
-    public function archiveMailbox(int $tenantId, int $userId, int $mailAccountId, string $principal): array
-    {
-        $archivedAt = new \DateTimeImmutable('now', new \DateTimeZone('UTC'));
-        $purgeAfter = $archivedAt->modify('+30 days');
-        $this->connection->executeStatement(
-            'UPDATE davyro_calendar_bindings SET archived_at = :archived, purge_after = :purge, updated_at = :updated '
-            .'WHERE tenant_id = :tenant AND user_id = :user AND mail_account_id = :mailbox '
-            .'AND principal = :principal AND archived_at IS NULL',
-            [
-                'archived' => $archivedAt->format('Y-m-d H:i:s'),
-                'purge' => $purgeAfter->format('Y-m-d H:i:s'),
-                'updated' => $archivedAt->format('Y-m-d H:i:s'),
-                'tenant' => $tenantId,
-                'user' => $userId,
-                'mailbox' => $mailAccountId,
-                'principal' => $principal,
-            ]
-        );
+    public function archiveMailbox(
+        int $tenantId,
+        int $userId,
+        int $mailAccountId,
+        string $principal,
+        \DateTimeImmutable $purgeAfter,
+    ): array {
+        $utc = new \DateTimeZone('UTC');
+        $requestedPurgeAfter = $purgeAfter->setTimezone($utc);
+        foreach ($this->findForMailbox($tenantId, $userId, $mailAccountId, true) as $binding) {
+            if (!hash_equals($principal, $binding->principal())) {
+                continue;
+            }
+
+            // Never let an out-of-order recovery request shorten a retention
+            // deadline already persisted on an otherwise active row.
+            $effectivePurgeAfter = $binding->purgeAfter() !== null
+                && $binding->purgeAfter() > $requestedPurgeAfter
+                    ? $binding->purgeAfter()
+                    : $requestedPurgeAfter;
+            $archivedAt = $effectivePurgeAfter->modify('-30 days');
+            $this->connection->update('davyro_calendar_bindings', [
+                'archived_at' => $archivedAt->format('Y-m-d H:i:s'),
+                'purge_after' => $effectivePurgeAfter->format('Y-m-d H:i:s'),
+                'updated_at' => self::now(),
+            ], ['id' => $binding->id()]);
+        }
 
         return $this->findForMailbox($tenantId, $userId, $mailAccountId, true);
     }
@@ -357,6 +398,27 @@ final class MailboxCalendarBindingsRepository
             'principal' => $principal,
             'uri' => $calendarUri,
         ]);
+
+        return is_array($row) ? $this->hydrate($row) : null;
+    }
+
+    private function findPrimaryForMailbox(
+        int $tenantId,
+        int $userId,
+        int $mailAccountId,
+        string $principal,
+    ): ?MailboxCalendarBinding {
+        $row = $this->connection->fetchAssociative(
+            'SELECT * FROM davyro_calendar_bindings '
+            .'WHERE tenant_id = :tenant AND user_id = :user AND mail_account_id = :mailbox '
+            .'AND principal = :principal AND is_primary = 1 ORDER BY created_at, id LIMIT 1',
+            [
+                'tenant' => $tenantId,
+                'user' => $userId,
+                'mailbox' => $mailAccountId,
+                'principal' => $principal,
+            ]
+        );
 
         return is_array($row) ? $this->hydrate($row) : null;
     }

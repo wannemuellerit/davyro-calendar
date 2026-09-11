@@ -122,141 +122,163 @@ final class EventsController extends ApiController
     public function create(ServerRequestInterface $request, ResponseInterface $response, array $args): ResponseInterface
     {
         return $this->guarded($response, function () use ($request, $response, $args): ResponseInterface {
-            $binding = $this->writableBinding((string) ($args['id'] ?? ''));
-            $input = $this->body($request);
-            $timezone = $this->timezone($input['timezone'] ?? null);
-            $start = $this->date($input['start'] ?? null, $timezone, 'start');
-            $end = $this->date($input['end'] ?? null, $timezone, 'end');
-            if ($end <= $start) {
-                throw new ApiValidation('end must be later than start');
-            }
+            return $this->access()->withActiveBinding(
+                (string) ($args['id'] ?? ''),
+                true,
+                function (MailboxCalendarBinding $binding) use ($request, $response): ResponseInterface {
+                    $input = $this->body($request);
+                    $timezone = $this->timezone($input['timezone'] ?? null);
+                    $start = $this->date($input['start'] ?? null, $timezone, 'start');
+                    $end = $this->date($input['end'] ?? null, $timezone, 'end');
+                    if ($end <= $start) {
+                        throw new ApiValidation('end must be later than start');
+                    }
 
-            $uid = Uuid::generate();
-            $event = $this->builder()->createEvent($uid);
-            $instance = $event->createEventInstance();
-            $organizerMailboxId = $this->organizerMailboxForCreate($binding, $input);
-            $this->applyInput($instance, $input, $organizerMailboxId, $start, $end, true);
-            $instance->touch();
-            $event->storeInstance($instance);
+                    $uid = Uuid::generate();
+                    $event = $this->builder()->createEvent($uid);
+                    $instance = $event->createEventInstance();
+                    $organizerMailboxId = $this->organizerMailboxForCreate($binding, $input);
+                    $this->applyInput($instance, $input, $organizerMailboxId, $start, $end, true);
+                    $instance->touch();
+                    $event->storeInstance($instance);
 
-            $calendar = $this->client()->getCalendarByUrl($binding->calendarUrl());
-            if (!$calendar->isWritable()) {
-                throw new ApiNotFound();
-            }
-            $object = CalendarObject::generateOnCalendar($calendar, $uid);
-            $object->setEvent($event);
-            $result = $this->client()->uploadCalendarObject($object);
-            $object->setEtag($result->getHeaderLine('ETag'));
-            $this->sendRequest($organizerMailboxId, $event);
+                    $calendar = $this->client()->getCalendarByUrl($binding->calendarUrl());
+                    if (!$calendar->isWritable()) {
+                        throw new ApiNotFound();
+                    }
+                    $object = CalendarObject::generateOnCalendar($calendar, $uid);
+                    $object->setEvent($event);
+                    $result = $this->client()->uploadCalendarObject($object);
+                    $object->setEtag($result->getHeaderLine('ETag'));
+                    $this->sendRequest($organizerMailboxId, $event);
 
-            return $this->json($response, ['data' => $this->bindingEventDto($binding, $object, $instance)], 201);
+                    return $this->json(
+                        $response,
+                        ['data' => $this->bindingEventDto($binding, $object, $instance)],
+                        201
+                    );
+                }
+            );
         });
     }
 
     public function update(ServerRequestInterface $request, ResponseInterface $response, array $args): ResponseInterface
     {
         return $this->guarded($response, function () use ($request, $response, $args): ResponseInterface {
-            $binding = $this->writableBinding((string) ($args['id'] ?? ''));
-            $input = $this->body($request);
-            $scope = $this->scope($input['scope'] ?? 'series');
-            $etag = $this->requiredIfMatch($request);
-            $uid = $this->uid($args['uid'] ?? null, $binding->id());
-            $calendar = $this->client()->getCalendarByUrl($binding->calendarUrl());
-            if (!$calendar->isWritable()) {
-                throw new ApiNotFound();
-            }
-            $object = $this->client()->fetchObjectByUid($calendar, $uid);
-            $this->assertEtag($etag, (string) $object->getEtag());
-            $object->setEtag($etag);
-            $event = $object->getEvent();
-            $recurrenceId = $scope === 'single'
-                ? $this->recurrenceId($input['recurrence_id'] ?? null)
-                : null;
-            $instance = $event->getEventInstance($recurrenceId);
-            if ($instance === null) {
-                throw new ApiNotFound();
-            }
-            $organizerMailboxId = $this->organizerMailboxForInstance($binding, $instance);
-            if ($organizerMailboxId === null) {
-                throw new ApiConflict('Only the organizer can modify this invitation');
-            }
-            $this->assertOrganizerMailboxInput($input, $organizerMailboxId);
+            return $this->access()->withActiveBinding(
+                (string) ($args['id'] ?? ''),
+                true,
+                function (MailboxCalendarBinding $binding) use ($request, $response, $args): ResponseInterface {
+                    $input = $this->body($request);
+                    $scope = $this->scope($input['scope'] ?? 'series');
+                    $etag = $this->requiredIfMatch($request);
+                    $uid = $this->uid($args['uid'] ?? null, $binding->id());
+                    $calendar = $this->client()->getCalendarByUrl($binding->calendarUrl());
+                    if (!$calendar->isWritable()) {
+                        throw new ApiNotFound();
+                    }
+                    $object = $this->client()->fetchObjectByUid($calendar, $uid);
+                    $this->assertEtag($etag, (string) $object->getEtag());
+                    $object->setEtag($etag);
+                    $event = $object->getEvent();
+                    $recurrenceId = $scope === 'single'
+                        ? $this->recurrenceId($input['recurrence_id'] ?? null)
+                        : null;
+                    $instance = $event->getEventInstance($recurrenceId);
+                    if ($instance === null) {
+                        throw new ApiNotFound();
+                    }
+                    $organizerMailboxId = $this->organizerMailboxForInstance($binding, $instance);
+                    if ($organizerMailboxId === null) {
+                        throw new ApiConflict('Only the organizer can modify this invitation');
+                    }
+                    $this->assertOrganizerMailboxInput($input, $organizerMailboxId);
 
-            $previousIcalendar = $event->render();
-            $previousAttendees = array_column($instance->getAttendees(), 'email');
-            $timezone = $this->timezone($input['timezone'] ?? $instance->getStart()->getTimezone()->getName());
-            $start = array_key_exists('start', $input)
-                ? $this->date($input['start'], $timezone, 'start')
-                : $instance->getStart();
-            $end = array_key_exists('end', $input)
-                ? $this->date($input['end'], $timezone, 'end')
-                : $instance->getEnd();
-            if ($end <= $start) {
-                throw new ApiValidation('end must be later than start');
-            }
-            $this->applyInput($instance, $input, $organizerMailboxId, $start, $end, false);
-            $instance->touch();
-            $event->storeInstance($instance);
-            $object->setEvent($event);
-            $result = $this->client()->uploadCalendarObject($object);
-            $object->setEtag($result->getHeaderLine('ETag'));
-            $removedAttendees = array_values(array_diff(
-                array_map('strtolower', $previousAttendees),
-                array_map('strtolower', array_column($instance->getAttendees(), 'email'))
-            ));
-            $this->sendCancellationForRemoved(
-                $organizerMailboxId,
-                (string) $event->getUid(),
-                $previousIcalendar,
-                $removedAttendees
+                    $previousIcalendar = $event->render();
+                    $previousAttendees = array_column($instance->getAttendees(), 'email');
+                    $timezone = $this->timezone($input['timezone'] ?? $instance->getStart()->getTimezone()->getName());
+                    $start = array_key_exists('start', $input)
+                        ? $this->date($input['start'], $timezone, 'start')
+                        : $instance->getStart();
+                    $end = array_key_exists('end', $input)
+                        ? $this->date($input['end'], $timezone, 'end')
+                        : $instance->getEnd();
+                    if ($end <= $start) {
+                        throw new ApiValidation('end must be later than start');
+                    }
+                    $this->applyInput($instance, $input, $organizerMailboxId, $start, $end, false);
+                    $instance->touch();
+                    $event->storeInstance($instance);
+                    $object->setEvent($event);
+                    $result = $this->client()->uploadCalendarObject($object);
+                    $object->setEtag($result->getHeaderLine('ETag'));
+                    $removedAttendees = array_values(array_diff(
+                        array_map('strtolower', $previousAttendees),
+                        array_map('strtolower', array_column($instance->getAttendees(), 'email'))
+                    ));
+                    $this->sendCancellationForRemoved(
+                        $organizerMailboxId,
+                        (string) $event->getUid(),
+                        $previousIcalendar,
+                        $removedAttendees
+                    );
+                    $this->sendRequest($organizerMailboxId, $event);
+
+                    return $this->json(
+                        $response,
+                        ['data' => $this->bindingEventDto($binding, $object, $instance)]
+                    );
+                }
             );
-            $this->sendRequest($organizerMailboxId, $event);
-
-            return $this->json($response, ['data' => $this->bindingEventDto($binding, $object, $instance)]);
         });
     }
 
     public function delete(ServerRequestInterface $request, ResponseInterface $response, array $args): ResponseInterface
     {
         return $this->guarded($response, function () use ($request, $response, $args): ResponseInterface {
-            $binding = $this->writableBinding((string) ($args['id'] ?? ''));
-            $query = $request->getQueryParams();
-            $scope = $this->scope($query['scope'] ?? 'series');
-            $etag = $this->requiredIfMatch($request);
-            $uid = $this->uid($args['uid'] ?? null, $binding->id());
-            $calendar = $this->client()->getCalendarByUrl($binding->calendarUrl());
-            if (!$calendar->isWritable()) {
-                throw new ApiNotFound();
-            }
-            $object = $this->client()->fetchObjectByUid($calendar, $uid);
-            $this->assertEtag($etag, (string) $object->getEtag());
-            $object->setEtag($etag);
-            $authorityInstance = $object->getEvent()->getEventInstance();
-            $organizerMailboxId = $authorityInstance === null
-                ? null
-                : $this->organizerMailboxForInstance($binding, $authorityInstance);
-            if ($binding->kind() === MailboxCalendarBinding::KIND_SHARED && $organizerMailboxId === null) {
-                throw new ApiConflict('Only the organizer can delete an event from a shared calendar');
-            }
+            return $this->access()->withActiveBinding(
+                (string) ($args['id'] ?? ''),
+                true,
+                function (MailboxCalendarBinding $binding) use ($request, $response, $args): ResponseInterface {
+                    $query = $request->getQueryParams();
+                    $scope = $this->scope($query['scope'] ?? 'series');
+                    $etag = $this->requiredIfMatch($request);
+                    $uid = $this->uid($args['uid'] ?? null, $binding->id());
+                    $calendar = $this->client()->getCalendarByUrl($binding->calendarUrl());
+                    if (!$calendar->isWritable()) {
+                        throw new ApiNotFound();
+                    }
+                    $object = $this->client()->fetchObjectByUid($calendar, $uid);
+                    $this->assertEtag($etag, (string) $object->getEtag());
+                    $object->setEtag($etag);
+                    $authorityInstance = $object->getEvent()->getEventInstance();
+                    $organizerMailboxId = $authorityInstance === null
+                        ? null
+                        : $this->organizerMailboxForInstance($binding, $authorityInstance);
+                    if ($binding->kind() === MailboxCalendarBinding::KIND_SHARED && $organizerMailboxId === null) {
+                        throw new ApiConflict('Only the organizer can delete an event from a shared calendar');
+                    }
 
-            if ($scope === 'single') {
-                $recurrence = $this->recurrenceId($query['recurrence_id'] ?? null);
-                $event = $object->getEvent();
-                $event->removeInstance($recurrence);
-                $object->setEvent($event);
-                $this->client()->uploadCalendarObject($object);
-                if ($organizerMailboxId !== null) {
-                    $this->sendRequest($organizerMailboxId, $event);
-                }
-            } else {
-                $rendered = $object->getRenderedEvent();
-                $this->client()->deleteCalendarObject($object);
-                if ($organizerMailboxId !== null) {
-                    $this->sendCancel($organizerMailboxId, $uid, $rendered);
-                }
-            }
+                    if ($scope === 'single') {
+                        $recurrence = $this->recurrenceId($query['recurrence_id'] ?? null);
+                        $event = $object->getEvent();
+                        $event->removeInstance($recurrence);
+                        $object->setEvent($event);
+                        $this->client()->uploadCalendarObject($object);
+                        if ($organizerMailboxId !== null) {
+                            $this->sendRequest($organizerMailboxId, $event);
+                        }
+                    } else {
+                        $rendered = $object->getRenderedEvent();
+                        $this->client()->deleteCalendarObject($object);
+                        if ($organizerMailboxId !== null) {
+                            $this->sendCancel($organizerMailboxId, $uid, $rendered);
+                        }
+                    }
 
-            return $response->withStatus(204);
+                    return $response->withStatus(204);
+                }
+            );
         });
     }
 
@@ -308,13 +330,11 @@ final class EventsController extends ApiController
                 $instance->addReminder($reminder);
             }
         }
-        if ($creating || $instance->getOrganizer() === null) {
-            $mailbox = $this->access()->mailbox($organizerMailboxId) ?? throw new ApiNotFound();
-            $instance->setOrganizer(
-                strtolower((string) $mailbox['email']),
-                (string) ($mailbox['name'] ?? $mailbox['email'])
-            );
-        }
+        $mailbox = $this->access()->mailbox($organizerMailboxId) ?? throw new ApiNotFound();
+        $instance->setOrganizer(
+            strtolower((string) $mailbox['email']),
+            (string) ($mailbox['name'] ?? $mailbox['email'])
+        );
     }
 
     /** @return array<int, array{email:string,name:string,status:string,role:string,rsvp:bool}> */
@@ -494,15 +514,21 @@ final class EventsController extends ApiController
             return $owned->mailAccountId();
         }
 
-        if (!array_key_exists('organizer_mailbox_id', $input)) {
-            throw new ApiValidation('organizer_mailbox_id is required for a shared calendar');
-        }
-        $requested = $this->access()->resolveMailboxId($input['organizer_mailbox_id']);
-        if ($requested === null) {
+        $active = $this->access()->selectedMailboxId();
+        if ($active < 1) {
             throw new ApiNotFound();
         }
+        if (array_key_exists('organizer_mailbox_id', $input)) {
+            $requested = $this->access()->resolveMailboxId($input['organizer_mailbox_id']);
+            if ($requested === null) {
+                throw new ApiNotFound();
+            }
+            if ($requested !== $active) {
+                throw new ApiValidation('The active mailbox determines the organizer for a shared calendar');
+            }
+        }
 
-        return $requested;
+        return $active;
     }
 
     private function organizerMailboxForInstance(
@@ -515,16 +541,12 @@ final class EventsController extends ApiController
             return $owned?->mailAccountId();
         }
         if ($owned !== null) {
-            $mailbox = $this->access()->mailbox($owned->mailAccountId());
-
-            return $mailbox !== null
-                && hash_equals(strtolower((string) ($mailbox['email'] ?? '')), $organizer)
+            return $this->access()->mailboxUsesOrganizerEmail($owned->mailAccountId(), $organizer)
                 ? $owned->mailAccountId()
                 : null;
         }
         foreach ($this->access()->mailboxIds() as $mailboxId) {
-            $mailbox = $this->access()->mailbox($mailboxId);
-            if ($mailbox !== null && hash_equals(strtolower((string) ($mailbox['email'] ?? '')), $organizer)) {
+            if ($this->access()->mailboxUsesOrganizerEmail($mailboxId, $organizer)) {
                 return $mailboxId;
             }
         }

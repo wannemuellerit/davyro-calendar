@@ -440,12 +440,15 @@ return [
     },
     \AgenDAV\Repositories\MailboxCalendarBindingsRepository::class => fn (ContainerInterface $c) =>
         new \AgenDAV\Repositories\MailboxCalendarBindingsRepository($c->get('db')),
+    \AgenDAV\Davyro\MailboxLifecycleGate::class => fn (ContainerInterface $c) =>
+        new \AgenDAV\Davyro\MailboxLifecycleGate($c->get('db')),
     \AgenDAV\Davyro\CalendarAccess::class => fn (ContainerInterface $c) => new \AgenDAV\Davyro\CalendarAccess(
         $c->get('session'),
         $c->get(\AgenDAV\Repositories\MailboxCalendarBindingsRepository::class),
         $c->get('shares.repository'),
         $c->get('subscriptions.repository'),
-        $c->get(\AgenDAV\Davyro\BrowserIdCodec::class)
+        $c->get(\AgenDAV\Davyro\BrowserIdCodec::class),
+        $c->get(\AgenDAV\Davyro\MailboxLifecycleGate::class)
     ),
     \AgenDAV\Davyro\DavyroSessionAuthenticator::class => fn (ContainerInterface $c) =>
         new \AgenDAV\Davyro\DavyroSessionAuthenticator($c),

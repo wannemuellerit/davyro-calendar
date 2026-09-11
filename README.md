@@ -26,6 +26,7 @@ verborgen.
 
 - [Davyro-Architektur](docs/davyro/architecture.md)
 - [Standalone-Betrieb](docs/davyro/standalone.md)
+- [Entwicklung, Test-Image und Issue-Governance](docs/davyro/development.md)
 - [Upstream-Strategie](UPSTREAM.md)
 - [Standalone-v1-Plan](https://github.com/wannemuellerit/davyro-calendar/issues/37)
 
