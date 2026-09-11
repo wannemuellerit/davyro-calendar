@@ -1,0 +1,76 @@
+name: ${COMPOSE_PROJECT_NAME:-davyro-calendar-phase0-contract}
+
+services:
+  database:
+    image: mariadb:11.8.9@sha256:2439dcd7d14010ecd1ff7a4e1c5abe8e208c34fe35290744deeeaac3569043c3
+    environment:
+      MARIADB_ROOT_PASSWORD: phase-zero-root-password
+      MARIADB_DATABASE: davyro_baikal_contract_test
+      MARIADB_USER: davyro_baikal_contract
+      MARIADB_PASSWORD: phase-zero-database-password
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+    networks:
+      - contract
+    security_opt:
+      - no-new-privileges:true
+
+  baikal:
+    image: ${DAVYRO_BAIKAL_CONTRACT_IMAGE}
+    build:
+      context: docker/davyro/baikal
+      args:
+        BAIKAL_VERSION: "0.12.1"
+        BAIKAL_SHA256: 0449abb72b151d39d9c08c63cb83a05d9e9adb065b1165ef6786b0b6a13d203c
+    depends_on:
+      database:
+        condition: service_healthy
+    environment:
+      BAIKAL_DB_HOST: database
+      BAIKAL_DB_NAME: davyro_baikal_contract_test
+      BAIKAL_DB_USER: davyro_baikal_contract
+      BAIKAL_DB_PASSWORD: phase-zero-database-password
+      BAIKAL_ADMIN_PASSWORD: phase-zero-admin-password
+      BAIKAL_ENCRYPTION_KEY: phase-zero-contract-encryption-key-32-bytes
+      DAVYRO_RUNTIME_ENVIRONMENT: prod
+      DAVYRO_CREATE_DEMO_USER: "false"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1/admin/install/ | grep -Fq 'Installation was already completed'"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+    networks:
+      - contract
+    security_opt:
+      - no-new-privileges:true
+
+  contract-tests:
+    image: ${DAVYRO_CONTRACT_TEST_IMAGE}
+    depends_on:
+      baikal:
+        condition: service_healthy
+    environment:
+      DAVYRO_BAIKAL_CONTRACT_DSN: mysql:host=database;dbname=davyro_baikal_contract_test;charset=utf8mb4
+      DAVYRO_BAIKAL_CONTRACT_DATABASE: davyro_baikal_contract_test
+      DAVYRO_BAIKAL_CONTRACT_USER: davyro_baikal_contract
+      DAVYRO_BAIKAL_CONTRACT_PASSWORD: phase-zero-database-password
+      DAVYRO_BAIKAL_CONTRACT_VERSION: "0.12.1"
+    command:
+      - vendor/bin/phpunit
+      - --configuration
+      - tests/phpunit.xml
+      - --filter
+      - BaikalProvisioningContractTest
+    networks:
+      - contract
+    security_opt:
+      - no-new-privileges:true
+
+networks:
+  contract:
+    internal: true

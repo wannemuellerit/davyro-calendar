@@ -34,9 +34,9 @@ RUN a2enconf davyro-baikal \
     && chmod 644 /opt/davyro/bootstrap.php
 
 LABEL org.opencontainers.image.title="Davyro Baikal" \
-      org.opencontainers.image.version="0.12.1" \
-      org.opencontainers.image.source="https://github.com/wannemuellerit/davyro-calendar" \
-      org.opencontainers.image.licenses="GPL-3.0-only"
+    org.opencontainers.image.version="0.12.1" \
+    org.opencontainers.image.source="https://github.com/wannemuellerit/davyro-calendar" \
+    org.opencontainers.image.licenses="GPL-3.0-only"
 
 ENTRYPOINT ["/usr/local/bin/davyro-baikal-entrypoint"]
 CMD ["apache2-foreground"]

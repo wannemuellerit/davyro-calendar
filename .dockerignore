@@ -11,8 +11,10 @@ HISTORY
 LICENSE
 ansible
 doc
-tests
+# Tests are needed by the dedicated Dockerfile `test` target. The
+# `production-source` stage removes them before the Apache runtime is built.
 node_modules
+vendor
 web/vendor
 web/public/dist/**/*
 !web/public/dist/**/.keep
@@ -20,3 +22,7 @@ web/public/dist/**/*
 *.log
 .idea
 .vscode
+/.php-cs-fixer.cache
+/tests/.phpunit.result.cache
+/coverage
+/test-results

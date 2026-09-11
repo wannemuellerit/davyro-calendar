@@ -54,3 +54,17 @@ jobs:
         run: |
           docker build --tag davyro-calendar-ci .
           docker run --rm --entrypoint apache2ctl davyro-calendar-ci configtest
+          docker run --rm --entrypoint sh davyro-calendar-ci -ec \
+            'test ! -d /app/tests && test ! -e /app/vendor/bin/phpunit && test ! -d /app/node_modules'
+
+  phase-zero-contract:
+    name: Test-Image und Baikal-0.12.1-Vertrag
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run reproducible Phase-0 contract
+        run: bash tests/phase0_contract.sh
