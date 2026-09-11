@@ -6,6 +6,13 @@
   "NoColor": false,
   "Exclude": [
     "\\.php$",
+    "^node_modules/",
+    "^vendor/",
+    "^web/vendor/",
+    "^resources/public/assets/",
+    "^web/public/dist/",
+    "^tests/\\.phpunit\\.result\\.cache$",
+    "^\\.php-cs-fixer\\.cache$",
     "\\.idea/",
     "docs/",
     "LICENSE",

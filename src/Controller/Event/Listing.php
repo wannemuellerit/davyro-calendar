@@ -27,6 +27,7 @@ use AgenDAV\CalDAV\Resource\Calendar;
 use AgenDAV\DateHelper;
 use AgenDAV\Event\FullCalendarEvent;
 use AgenDAV\Data\Transformer\FullCalendarEventTransformer;
+use AgenDAV\Davyro\CalendarAccess;
 use AgenDAV\Data\Serializer\PlainSerializer;
 use League\Fractal\Resource\Collection;
 use Psr\Container\ContainerInterface;
@@ -63,8 +64,27 @@ class Listing extends JSONController
         ResponseInterface $response
     ): ResponseInterface {
         $calendar = new Calendar($input->get('calendar'));
-        if ($input->getBoolean('is_subscribed') === true) {
+        $subscribed = $input->getBoolean('is_subscribed');
+        if ($this->container->has(CalendarAccess::class)) {
+            $access = $this->container->get(CalendarAccess::class);
+            if ($access->isDavyroSession()) {
+                $kind = $access->resourceKind((string) $input->get('calendar'));
+                if ($kind === null) {
+                    return $response->withStatus(404);
+                }
+                // Never trust the legacy browser flag to choose between the
+                // CalDAV and external-subscription retrieval paths.
+                $subscribed = $kind === CalendarAccess::RESOURCE_SUBSCRIBED;
+            }
+        }
+        if ($subscribed) {
             $calendar->setSubscribed(true);
+        }
+        if ($this->container->has(CalendarAccess::class) && !$this->container->get(CalendarAccess::class)->canRead(
+            (string) $input->get('calendar'),
+            $subscribed
+        )) {
+            return $response->withStatus(404);
         }
         $timezone = new \DateTimeZone($input->get('timezone'));
         $start = DateHelper::fullcalendarToDateTime($input->get('start'), $timezone);

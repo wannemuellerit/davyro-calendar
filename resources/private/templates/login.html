@@ -23,17 +23,37 @@
 {% endif %}
 
 <div class="loginform ui-corner-all">
+  {% if davyro_demo_credentials %}
+  <div class="alert alert-info davyro-demo-login" role="note">
+    <p><strong>Lokaler Demo-Zugang</strong></p>
+    <dl>
+      <dt>Benutzername</dt>
+      <dd><code id="davyro-demo-username">{{ davyro_demo_credentials.username|e }}</code></dd>
+      <dt>Passwort</dt>
+      <dd><code id="davyro-demo-password">{{ davyro_demo_credentials.password|e }}</code></dd>
+    </dl>
+    <button
+      type="button"
+      id="davyro-fill-demo-login"
+      class="btn btn-default btn-sm"
+      data-username="{{ davyro_demo_credentials.username|e('html_attr') }}"
+      data-password="{{ davyro_demo_credentials.password|e('html_attr') }}"
+    >Zugangsdaten einfügen</button>
+  </div>
+  {% endif %}
+
   <form method="post" action="{{ url_for('login') }}" class="form-horizontal">
     <input type="hidden" name="_token" value="{{ csrf_token.getValue() }}">
     <div class="form-group">
       <label class="col-sm-3 control-label" for="user">{% trans %}labels.username{% endtrans %}</label>
-      <div class="col-sm-9"><input name="user" class="form-control" type="text"
-        autofocus="autofocus" required></div>
+      <div class="col-sm-9"><input id="user" name="user" class="form-control" type="text"
+        autocomplete="username" autofocus="autofocus" required></div>
     </div>
 
     <div class="form-group">
       <label class="col-sm-3 control-label" for="password">{% trans %}labels.password{% endtrans %}</label>
-      <div class="col-sm-9"><input name="password" class="form-control" type="password" required></div>
+      <div class="col-sm-9"><input id="password" name="password" class="form-control" type="password"
+        autocomplete="current-password" required></div>
     </div>
 
     <input name="login" value="{% trans %}labels.login{% endtrans %}" type="submit" class="btn btn-success">
@@ -41,4 +61,28 @@
 
 </div>
 </div>
+{% endblock %}
+
+{% block bottom %}
+{% if davyro_demo_credentials %}
+<script>
+(function () {
+  'use strict';
+
+  var fillButton = document.getElementById('davyro-fill-demo-login');
+  var usernameInput = document.getElementById('user');
+  var passwordInput = document.getElementById('password');
+
+  if (!fillButton || !usernameInput || !passwordInput) {
+    return;
+  }
+
+  fillButton.addEventListener('click', function () {
+    usernameInput.value = fillButton.getAttribute('data-username') || '';
+    passwordInput.value = fillButton.getAttribute('data-password') || '';
+    usernameInput.focus();
+  });
+}());
+</script>
+{% endif %}
 {% endblock %}

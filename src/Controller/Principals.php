@@ -55,6 +55,20 @@ class Principals
         $filter = mb_substr((string) $filter, 0, self::MAX_TERM_LENGTH);
 
         $result = $this->container->get('principals.repository')->search($filter);
+        $tenantPrefix = (string) $this->container->get('session')->get('davyro.tenant_prefix', '');
+        $result = array_filter(
+            $result,
+            static function ($principal) use ($tenantPrefix): bool {
+                if ($tenantPrefix === '') {
+                    return false;
+                }
+
+                $path = (string) parse_url((string) $principal->getUrl(), PHP_URL_PATH);
+                $username = basename(rtrim($path, '/'));
+
+                return str_starts_with($username, $tenantPrefix);
+            }
+        );
 
         $fractal = $this->container->get('fractal');
         $fractal->setSerializer(new PlainSerializer());

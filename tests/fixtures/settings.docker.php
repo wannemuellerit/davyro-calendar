@@ -23,6 +23,7 @@ return [
     'site.title' => 'AgenDAV (docker)',
 
     'calendar.subscriptions' => true,
+    'calendar.subscriptions.encryption.key' => 'cafebabecafebabecafebabecafebabecafebabecafebabecafebabecafebabe',
 
     // Enable HTTP Basic auth as an alternative to the form login
     'auth.methods' => [\AgenDAV\Authentication\HttpBasic::class],

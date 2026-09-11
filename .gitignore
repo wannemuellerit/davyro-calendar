@@ -11,6 +11,9 @@
 
 *.phar
 *.sqlite
+.env
+.env.*
+!.env.example
 
 # PHPUnit
 /tests/.phpunit.result.cache
@@ -26,10 +29,13 @@ resources/public/assets/img/jquery-ui/
 resources/public/assets/font/
 resources/public/assets/fullcalendar-locale/
 public/test-calendar.ics
+/tests/load/*.local.json
+/tests/load/results*.json
 
 # Configuration file
 /config/settings*
 !/config/settings.template.php
+!/config/settings.standalone.php
 
 # Development
 /node_modules/

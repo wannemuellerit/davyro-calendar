@@ -58,11 +58,14 @@ class JavaScriptCode
         $routeParser = $this->container->get(RouteParserInterface::class);
         $appUrl = $routeParser->urlFor('calendar');
         $baseUrl = rtrim($appUrl, '/');
+        $locale = $this->container->get('translator')->getLocale();
+        $fullCalendarLanguages = $this->container->get('fullcalendar.languages');
 
         $settings = [
             'base_url' => $baseUrl,
             'base_app_url' => $appUrl,
             'agendav_version' => \AgenDAV\Version::V,
+            'locale' => $fullCalendarLanguages[$locale] ?? 'en',
             'enable_calendar_sharing' => $this->container->get('calendar.sharing'),
             'enable_calendar_subscriptions' => $this->container->get('calendar.subscriptions'),
             'calendar_colors' => array_map(
@@ -71,6 +74,8 @@ class JavaScriptCode
             ),
             'default_calendar_color' => '#' . ltrim($this->container->get('calendar.colors')[0], '#'),
             'show_public_caldav_url' => $this->container->get('caldav.publicurls'),
+            'mailboxes' => $this->calendarMailboxes(),
+            'active_mail_account_id' => (int) $this->container->get('session')->get('davyro.active_mail_account_id', 0),
         ];
 
         if ($this->container->get('caldav.publicurls')) {
@@ -78,6 +83,27 @@ class JavaScriptCode
         }
 
         return $settings;
+    }
+
+    /** @return array<int, array{id:int,email:string}> */
+    private function calendarMailboxes(): array
+    {
+        $result = [];
+        $activeId = (int) $this->container->get('session')->get('davyro.active_mail_account_id', 0);
+        foreach ((array) $this->container->get('session')->get('davyro.mailboxes', []) as $mailbox) {
+            if (!is_array($mailbox) || filter_var($mailbox['email'] ?? null, FILTER_VALIDATE_EMAIL) === false) {
+                continue;
+            }
+            if ($activeId > 0 && (int) ($mailbox['id'] ?? 0) !== $activeId) {
+                continue;
+            }
+            $result[] = [
+                'id' => (int) ($mailbox['id'] ?? 0),
+                'email' => strtolower((string) $mailbox['email']),
+            ];
+        }
+
+        return $result;
     }
 
     /**

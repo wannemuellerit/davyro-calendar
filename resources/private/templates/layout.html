@@ -19,7 +19,7 @@
 <script src="{{ asset('dist/js/es5-shim.js') }}"></script>
 <![endif]-->
     </head>
-    <body>
+    <body{% if davyro_embedded %} class="davyro-embedded"{% endif %}>
         {% block content %}{% endblock %}
         {% block bottom %}{% endblock %}
     </body>

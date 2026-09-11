@@ -26,6 +26,7 @@ use \AgenDAV\Data\Principal;
 use \AgenDAV\CalDAV\Share\ACL;
 use \AgenDAV\CalDAV\Filter\Uid;
 use \AgenDAV\CalDAV\Filter\TimeRange;
+use AgenDAV\Davyro\SubscriptionFeedFetcher;
 
 class Client
 {
@@ -48,7 +49,8 @@ class Client
     public function __construct(
         \AgenDAV\Http\Client $http_client,
         \AgenDAV\XML\Toolkit $xml_toolkit,
-        \AgenDAV\Event\Parser $event_parser
+        \AgenDAV\Event\Parser $event_parser,
+        protected ?SubscriptionFeedFetcher $subscription_feed_fetcher = null
     ) {
         $this->http_client = $http_client;
         $this->xml_toolkit = $xml_toolkit;
@@ -387,7 +389,7 @@ class Client
     * @param \AgenDAV\CalDAV\Resource\CalendarObject $calendar_object
     * @return \GuzzleHttp\Psr7\Response
     */
-    public function uploadCalendarObject(CalendarObject $calendar_object)
+    public function uploadCalendarObject(CalendarObject $calendar_object, bool $scheduleReply = true)
     {
         $this->http_client->setContentTypeiCalendar();
 
@@ -400,6 +402,11 @@ class Client
             $this->http_client->setHeader('If-None-Match', '*');
         } else {
             $this->http_client->setHeader('If-Match', $etag);
+        }
+        if (!$scheduleReply) {
+            // RFC 6638: an explicit import must never send an attendee reply
+            // merely because the object is stored in a calendar collection.
+            $this->http_client->setHeader('Schedule-Reply', 'F');
         }
 
         return $this->http_client->request('PUT', $url, $body);
@@ -493,11 +500,10 @@ class Client
     */
     public function get($url)
     {
-        // Use a plain client without CalDAV credentials to avoid leaking
-        // the user's password to external ICS feed hosts.
-        $response = (new \GuzzleHttp\Client())->request('GET', $url);
-
-        $contents = (string)$response->getBody();
+        if ($this->subscription_feed_fetcher === null) {
+            throw new \RuntimeException('Subscription feed fetcher is not configured');
+        }
+        $contents = $this->subscription_feed_fetcher->fetch($url);
 
         $result = [
             $url=>[

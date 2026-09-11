@@ -136,6 +136,19 @@ class VObjectBuilder implements Builder
             case 'description':
                 $instance->setDescription($value);
                 break;
+            case 'organizer_email':
+                $instance->setOrganizer($value, '');
+                break;
+            case 'organizer':
+                if (is_array($value)) {
+                    $instance->setOrganizer($value['email'] ?? null, $value['name'] ?? '');
+                }
+                break;
+            case 'attendees':
+                if (is_array($value)) {
+                    $instance->setAttendees($value);
+                }
+                break;
             case 'class':
                 $instance->setClass($value);
                 break;

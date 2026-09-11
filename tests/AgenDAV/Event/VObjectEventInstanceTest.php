@@ -277,6 +277,28 @@ class VObjectEventInstanceTest extends TestCase
         $this->assertEquals('1', (string)$vevent->SEQUENCE);
     }
 
+    public function testOrganizerAndAttendeesRoundTripWithPartstat(): void
+    {
+        $vevent = $this->vcalendar->add('VEVENT', self::$some_properties);
+        $instance = new VObjectEventInstance($vevent);
+        $instance->setOrganizer('owner@example.test', 'Owner Name');
+        $instance->setAttendees([
+            ['email' => 'guest@example.org', 'name' => 'Guest Name'],
+        ]);
+
+        $this->assertSame([
+            'email' => 'owner@example.test',
+            'name' => 'Owner Name',
+        ], $instance->getOrganizer());
+        $this->assertSame('guest@example.org', $instance->getAttendees()[0]['email']);
+        $this->assertSame('NEEDS-ACTION', $instance->getAttendees()[0]['status']);
+        $this->assertTrue($instance->getAttendees()[0]['rsvp']);
+
+        $vevent->ATTENDEE['PARTSTAT'] = 'ACCEPTED';
+        $instance->setAttendees([['email' => 'guest@example.org']]);
+        $this->assertSame('ACCEPTED', $instance->getAttendees()[0]['status']);
+    }
+
     public function testCopyPropertiesFrom()
     {
         $vevent = $this->vcalendar->add('VEVENT', self::$some_properties);

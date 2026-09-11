@@ -723,6 +723,19 @@ BODY;
         $this->validatePutObjectRequest($object);
     }
 
+    public function testPutObjectCanExplicitlySuppressSchedulingReplies()
+    {
+        $response = new Response(201);
+        $client = $this->createCalDAVClient($response);
+        $event = $this->createMock(\AgenDAV\Event::class);
+        $event->method('render')->willReturn('iCalendar resource');
+        $object = new CalendarObject('/url', $event);
+
+        $client->uploadCalendarObject($object, false);
+
+        $this->assertSame('F', $this->history[0]['request']->getHeaderLine('Schedule-Reply'));
+    }
+
     public function testDeleteObjectWithEtag()
     {
         $response = new Response(200);

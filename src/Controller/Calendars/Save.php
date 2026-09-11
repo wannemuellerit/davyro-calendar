@@ -29,6 +29,10 @@ use AgenDAV\Data\Principal;
 use AgenDAV\Data\Share;
 use AgenDAV\Data\Helper\SharesDiff;
 use AgenDAV\Repositories\SubscriptionsRepository;
+use AgenDAV\Davyro\MailboxCalendar;
+use AgenDAV\Davyro\CalendarAccess;
+use AgenDAV\Repositories\MailboxCalendarBindingsRepository;
+use AgenDAV\Exception\NotFound;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Symfony\Component\HttpFoundation\ParameterBag;
@@ -51,6 +55,57 @@ class Save extends JSONController
         ResponseInterface $response
     ): ResponseInterface {
         $url = $input->get('calendar');
+        $access = $this->container->get(CalendarAccess::class);
+        if ($access->isDavyroSession()) {
+            $kind = $access->resourceKind((string) $url);
+            if ($kind === null) {
+                return $response->withStatus(404);
+            }
+
+            // These legacy fields originate in the browser and are not an
+            // authorization source. Normalize them from persisted bindings,
+            // shares and subscriptions before entering the upstream paths.
+            $input->set('is_subscribed', $kind === CalendarAccess::RESOURCE_SUBSCRIBED);
+            $input->set('is_owned', $kind === CalendarAccess::RESOURCE_OWNED);
+        }
+        if ($access->isDavyroSession()
+            && !$access->canRead((string) $url, $input->getBoolean('is_subscribed'))) {
+            return $this->generateException($response, 'Der Kalender gehört nicht zum ausgewählten Postfach.', 403);
+        }
+        if ($access->isDavyroSession() && !$input->getBoolean('is_subscribed') && !$access->canWrite((string) $url)) {
+            return $this->generateException($response, 'Der Kalender ist schreibgeschützt.', 403);
+        }
+        if ($access->isDavyroSession()) {
+            try {
+                if ($input->getBoolean('is_subscribed')) {
+                    $subscription = $access->subscriptionByUrl((string) $url);
+                    $mailboxId = (int) ($subscription?->getProperty('davyro.mail_account_id') ?? 0);
+
+                    return $access->withActiveMailbox(
+                        $mailboxId,
+                        fn (): ResponseInterface => $this->executeMutation($input, $response, $access, $url)
+                    );
+                }
+
+                return $access->withActiveCalendarUrls(
+                    [(string) $url],
+                    true,
+                    fn (): ResponseInterface => $this->executeMutation($input, $response, $access, $url)
+                );
+            } catch (NotFound) {
+                return $response->withStatus(404);
+            }
+        }
+
+        return $this->executeMutation($input, $response, $access, $url);
+    }
+
+    private function executeMutation(
+        ParameterBag $input,
+        ResponseInterface $response,
+        CalendarAccess $access,
+        mixed $url,
+    ): ResponseInterface {
         $calendar = new Calendar($url, [
             Calendar::DISPLAYNAME => $input->get('displayname'),
             Calendar::COLOR => $input->get('calendar_color'),
@@ -69,6 +124,21 @@ class Save extends JSONController
 
             $this->applySubscribedCalendarProperties($subscription, $input);
             $subscriptions_repository->save($subscription);
+            return $this->generateSuccess($response);
+        }
+
+        if ($access->isDavyroSession() && $access->resourceKind((string) $url) === CalendarAccess::RESOURCE_SHARED) {
+            // A share recipient may customize their local display properties,
+            // but must never reach the source calendar or its ACL, regardless
+            // of the global upstream sharing toggle.
+            $shares_repository = $this->container->get('shares.repository');
+            $current_user_principal = new Principal(
+                $this->container->get('session')->get('principal_url')
+            );
+            $share = $shares_repository->getSourceShare($calendar, $current_user_principal);
+            $this->applySharedCalendarProperties($share, $input);
+            $shares_repository->save($share);
+
             return $this->generateSuccess($response);
         }
 
@@ -94,6 +164,12 @@ class Save extends JSONController
             $shares = $input->get('shares');
             $post_shares['with'] = $shares['with'] ?? [];
             $post_shares['rw'] = $shares['rw'] ?? [];
+        }
+        if (!$this->sharesBelongToCurrentTenant($post_shares['with'])) {
+            return $this->generateException(
+                $response,
+                $this->container->get('translator')->trans('messages.error_shareunknownusers')
+            );
         }
         $current_shares = $shares_repository->getSharesOnCalendar($calendar);
         $new_shares = Shares::buildFromInput(
@@ -123,9 +199,38 @@ class Save extends JSONController
         return $this->updateCalDAV($calendar, $response);
     }
 
+    /** @param string[] $principalUrls */
+    private function sharesBelongToCurrentTenant(array $principalUrls): bool
+    {
+        $tenantPrefix = (string) $this->container->get('session')->get('davyro.tenant_prefix', '');
+        if ($tenantPrefix === '' && $principalUrls !== []) {
+            return false;
+        }
+        foreach ($principalUrls as $principalUrl) {
+            $path = parse_url((string) $principalUrl, PHP_URL_PATH);
+            $username = is_string($path) ? basename(rtrim($path, '/')) : '';
+            if ($username === ''
+                || preg_match('/^'.preg_quote($tenantPrefix, '/').'u[1-9][0-9]*$/', $username) !== 1
+            ) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     protected function updateCalDAV(Calendar $calendar, ResponseInterface $response): ResponseInterface
     {
         $this->client->updateCalendar($calendar);
+        $access = $this->container->get(CalendarAccess::class);
+        $binding = $access->ownedBindingByUrl((string) $calendar->getUrl());
+        if ($binding !== null) {
+            $this->container->get(MailboxCalendarBindingsRepository::class)->updateCalendar(
+                $binding,
+                (string) $calendar->getProperty(Calendar::DISPLAYNAME),
+                (string) $calendar->getProperty(Calendar::COLOR)
+            );
+        }
         return $this->generateSuccess($response);
     }
 
