@@ -65,6 +65,23 @@ $cli->addCommands([
 		__DIR__ . '/../var',
 		$connection
 	),
+
+	// Retry durable calendar e-mail deliveries
+	new \AgenDAV\Console\Command\ImipDispatchDueCommand(
+		$container->get(\AgenDAV\Davyro\Outbox\ImipDispatchOutbox::class)
+	),
 ]);
+
+$webcalKey = $container->get('calendar.subscriptions.encryption.key');
+if (is_string($webcalKey) && $webcalKey !== '') {
+	$cli->addCommands([
+		new \AgenDAV\Console\Command\WebCalEncryptLegacyUrlsCommand(
+			$container->get(\AgenDAV\Davyro\WebCal\LegacyWebCalEncryptor::class)
+		),
+		new \AgenDAV\Console\Command\WebCalRefreshDueCommand(
+			$container->get(\AgenDAV\Davyro\WebCal\WebCalRefreshWorker::class)
+		),
+	]);
+}
 
 $cli->run();

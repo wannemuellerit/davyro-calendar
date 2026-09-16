@@ -53,6 +53,9 @@ $translations = [
     'labels.calendar' => 'Calendar',
     'labels.location' => 'Location',
     'labels.description' => 'Description',
+    'labels.organizer' => 'Invite as',
+    'labels.attendees' => 'Attendees',
+    'labels.attendees_help' => 'Separate email addresses with commas or spaces. Invitations and later updates are sent automatically.',
 
     'labels.displayname' => 'Display name',
     'labels.color' => 'Color',

@@ -1,3 +1,43 @@
+# Davyro Kalender
+
+Dieses Repository ist der öffentliche Davyro-Fork von AgenDAV. Davyro Kalender
+verwendet AgenDAV als Weboberfläche und Baïkal als internen CalDAV-Server. Der
+Standalone-Stack läuft unabhängig vom Davyro Hub und ist über eine
+passwortlose Einmal-Ticket-Brücke mit Davyro Mail verknüpft. Er unterstützt
+mandantenbegrenzte Kalenderfreigaben, sichere WebCal/ICS-Abonnements sowie
+iCalendar-Einladungen, Antworten, Aktualisierungen und Absagen über die in
+Davyro Mail verbundenen SMTP-Konten.
+
+```bash
+cp .env.example .env
+# Lokal direkt startbar; vor Produktion alle Beispiel-Secrets ersetzen
+docker compose -f compose.standalone.yaml config --quiet
+docker compose -f compose.standalone.yaml up --build -d
+```
+
+Die Weboberfläche ist danach standardmäßig unter <http://localhost:8089>
+erreichbar. Baïkal und die Datenbank besitzen absichtlich keinen Host-Port.
+Der lokale Bridge-Schlüssel in `.env.example` stimmt mit dem Zero-Config-
+Entwicklungswert von Davyro Mail überein. In Produktion muss in beiden Stacks
+derselbe neue, zufällige `MAIL_BRIDGE_SHARED_SECRET` gesetzt werden.
+Mit den Development-Werten aus `.env.example` ist die lokale Anmeldung
+`t-demo-m-demo` / `replace-demo-password` verfügbar. Demo-Bootstrap muss in
+Produktionsumgebungen deaktiviert werden. Im Entwicklungsmodus zeigt die
+Loginseite diese Daten an; „Zugangsdaten einfügen“ übernimmt sie in das
+Formular. Außerhalb von `dev` bleibt die Hilfe auch bei gesetzten Werten
+verborgen.
+
+- [Davyro-Architektur](docs/davyro/architecture.md)
+- [Standalone-Betrieb](docs/davyro/standalone.md)
+- [Entwicklung, Test-Image und Issue-Governance](docs/davyro/development.md)
+- [Upstream-Strategie](UPSTREAM.md)
+- [Standalone-v1-Plan](https://github.com/wannemuellerit/davyro-calendar/issues/37)
+
+Der nachfolgende AgenDAV-Upstream-Text und alle Copyright-/Lizenzhinweise
+bleiben Bestandteil dieses Forks.
+
+---
+
 # AgenDAV - CalDAV web client
 
 [![Maintenance mode](https://img.shields.io/badge/maintenance_mode-%F0%9F%9A%A7-grey.svg?labelColor=orange)](https://github.com/agendav/agendav/#maintenance-mode)

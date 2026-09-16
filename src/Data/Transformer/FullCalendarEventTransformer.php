@@ -75,6 +75,10 @@ class FullCalendarEventTransformer extends Fractal\TransformerAbstract
             'icalendar_class' => $event->getClass(),
             'transp' => $event->getTransp(),
             'description' => $event->getDescription(),
+            'organizer' => $event->getOrganizer(),
+            'organizer_email' => $event->getOrganizer()['email'] ?? '',
+            'attendees' => $event->getAttendees(),
+            'attendees_input' => implode(', ', array_column($event->getAttendees(), 'email')),
         ];
 
         $result['id'] = $result['calendar'] . $result['uid'];

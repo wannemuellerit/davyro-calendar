@@ -60,18 +60,89 @@ class Log
     }
 
     /**
-    * Monolog processor to hide Authorization: headers
+    * Monolog processor to remove credentials and calendar payloads from the
+    * verbose development HTTP log. The historic method name is retained for
+    * compatibility with downstream AgenDAV configuration.
     *
     * @return \Closure
     */
     public static function hideAuthorizationHeader()
     {
         return function (\Monolog\LogRecord $record): \Monolog\LogRecord {
-            return $record->with(message: preg_replace(
-                '/^Authorization: .+$/m',
-                'Authorization: ***HIDDEN***',
-                $record->message
-            ));
+            $message = self::redactHttpMessage($record->message);
+            $extra = $record->extra;
+
+            foreach (['url', 'referrer'] as $field) {
+                if (isset($extra[$field]) && is_string($extra[$field])) {
+                    $extra[$field] = self::withoutQuery($extra[$field]);
+                }
+            }
+
+            return $record->with(message: $message, extra: $extra);
         };
+    }
+
+    private static function redactHttpMessage(string $message): string
+    {
+        $redacted = preg_replace(
+            '/^(Authorization|Proxy-Authorization|Cookie|Set-Cookie|X-Davyro-Signature):[^\r\n]*\r?$/mi',
+            '$1: ***HIDDEN***',
+            $message
+        ) ?? $message;
+
+        // MessageFormatter renders request targets including their query
+        // string. Those parameters may contain SSO or publication tokens.
+        $redacted = preg_replace(
+            '/^([A-Z]+\s+)([^\s?]+)\?[^\s]*(\s+HTTP\/\d(?:\.\d)?)\r?$/mi',
+            '$1$2$3',
+            $redacted
+        ) ?? $redacted;
+
+        // A regular CalDAV XML response can embed one or more complete
+        // VCALENDAR resources even though its own Content-Type is XML.
+        $redacted = preg_replace(
+            '/BEGIN:VCALENDAR\b.*?END:VCALENDAR(?:\r?\n)?/si',
+            '[iCalendar payload redacted]',
+            $redacted
+        ) ?? $redacted;
+
+        // Also cover a malformed or partial payload whose HTTP Content-Type is
+        // still text/calendar but which has no complete VCALENDAR wrapper.
+        $parts = preg_split('/(\r?\n~{12}\r?\n)/', $redacted, -1, PREG_SPLIT_DELIM_CAPTURE);
+        if (is_array($parts)) {
+            foreach ($parts as $index => $part) {
+                if ($index % 2 !== 0 || !preg_match('/^Content-Type:\s*text\/calendar\b/im', $part)) {
+                    continue;
+                }
+
+                $parts[$index] = preg_replace(
+                    '/(\r?\n\r?\n).*$/s',
+                    '$1[iCalendar payload redacted]',
+                    $part
+                ) ?? $part;
+            }
+            $redacted = implode('', $parts);
+        }
+
+        $redacted = preg_replace(
+            '/("[^"\r\n]*(?:ticket|password|token|secret)[^"\r\n]*"\s*:\s*)"[^"]*"/i',
+            '$1"***HIDDEN***"',
+            $redacted
+        ) ?? $redacted;
+
+        $redacted = preg_replace(
+            '/\b((?:ticket|password|token|secret)=)[^&\s]*/i',
+            '$1***HIDDEN***',
+            $redacted
+        ) ?? $redacted;
+
+        return $redacted;
+    }
+
+    private static function withoutQuery(string $url): string
+    {
+        $end = strcspn($url, '?#');
+
+        return substr($url, 0, $end);
     }
 }

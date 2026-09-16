@@ -107,6 +107,34 @@ class VObjectEventInstance implements EventInstance
         return (string) $this->vevent->DESCRIPTION;
     }
 
+    public function getOrganizer(): ?array
+    {
+        if (!isset($this->vevent->ORGANIZER)) {
+            return null;
+        }
+
+        return [
+            'email' => $this->mailAddress((string) $this->vevent->ORGANIZER),
+            'name' => (string) ($this->vevent->ORGANIZER['CN'] ?? ''),
+        ];
+    }
+
+    public function getAttendees(): array
+    {
+        $attendees = [];
+        foreach ($this->vevent->select('ATTENDEE') as $property) {
+            $attendees[] = [
+                'email' => $this->mailAddress((string) $property),
+                'name' => (string) ($property['CN'] ?? ''),
+                'status' => strtoupper((string) ($property['PARTSTAT'] ?? 'NEEDS-ACTION')),
+                'role' => strtoupper((string) ($property['ROLE'] ?? 'REQ-PARTICIPANT')),
+                'rsvp' => strtoupper((string) ($property['RSVP'] ?? 'FALSE')) === 'TRUE',
+            ];
+        }
+
+        return $attendees;
+    }
+
     /**
     * Get the CLASS property of this event
     *
@@ -296,6 +324,48 @@ class VObjectEventInstance implements EventInstance
         $this->setProperty('DESCRIPTION', $description);
     }
 
+    public function setOrganizer(?string $email, string $name = '')
+    {
+        unset($this->vevent->ORGANIZER);
+        if ($email === null || $email === '') {
+            return;
+        }
+
+        $parameters = [];
+        if ($name !== '') {
+            $parameters['CN'] = $name;
+        }
+        $this->vevent->add('ORGANIZER', 'mailto:' . strtolower($email), $parameters);
+    }
+
+    public function setAttendees(array $attendees)
+    {
+        $existingStatus = [];
+        foreach ($this->getAttendees() as $attendee) {
+            $existingStatus[strtolower($attendee['email'])] = $attendee['status'];
+        }
+        foreach ($this->vevent->select('ATTENDEE') as $property) {
+            $this->vevent->remove($property);
+        }
+
+        foreach ($attendees as $attendee) {
+            $email = strtolower(trim((string) ($attendee['email'] ?? '')));
+            if (filter_var($email, FILTER_VALIDATE_EMAIL) === false) {
+                continue;
+            }
+            $parameters = [
+                'ROLE' => strtoupper((string) ($attendee['role'] ?? 'REQ-PARTICIPANT')),
+                'PARTSTAT' => strtoupper((string) ($attendee['status'] ?? ($existingStatus[$email] ?? 'NEEDS-ACTION'))),
+                'RSVP' => ($attendee['rsvp'] ?? true) ? 'TRUE' : 'FALSE',
+            ];
+            $name = trim((string) ($attendee['name'] ?? ''));
+            if ($name !== '') {
+                $parameters['CN'] = $name;
+            }
+            $this->vevent->add('ATTENDEE', 'mailto:' . $email, $parameters);
+        }
+    }
+
     /**
     * Set the CLASS property for this event
     *
@@ -471,6 +541,9 @@ class VObjectEventInstance implements EventInstance
         $this->setColor($source->getColor());
         $this->setLocation($source->getLocation());
         $this->setDescription($source->getDescription());
+        $organizer = $source->getOrganizer();
+        $this->setOrganizer($organizer['email'] ?? null, $organizer['name'] ?? '');
+        $this->setAttendees($source->getAttendees());
         $this->setClass($source->getClass());
         $this->setTransp($source->getTransp());
         $all_day = $source->isAllDay();
@@ -540,6 +613,11 @@ class VObjectEventInstance implements EventInstance
             return;
         }
         $this->vevent->{$property_name} = $value;
+    }
+
+    private function mailAddress(string $value): string
+    {
+        return preg_replace('/^mailto:/i', '', trim($value)) ?? '';
     }
 
     /**

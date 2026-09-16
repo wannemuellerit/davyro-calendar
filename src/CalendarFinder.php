@@ -25,6 +25,8 @@ use AgenDAV\Repositories\SharesRepository;
 use AgenDAV\CalDAV\Client;
 use AgenDAV\CalDAV\Resource\Calendar;
 use AgenDAV\Data\Principal;
+use AgenDAV\Davyro\MailboxCalendar;
+use AgenDAV\Davyro\CalendarAccess;
 use Symfony\Component\HttpFoundation\Session\Session;
 
 /**
@@ -54,7 +56,7 @@ class CalendarFinder
     * @param \Symfony\Component\HttpFoundation\Session\Session $session
     * @param \AgenDAV\CalDAV\Client $client
     */
-    public function __construct(Session $session, Client $client)
+    public function __construct(Session $session, Client $client, private ?CalendarAccess $calendarAccess = null)
     {
         $this->sharing_enabled = false;
         $this->client = $client;
@@ -114,7 +116,7 @@ class CalendarFinder
         $subscribed_calendars = $this->getSubscribedCalendars($this->current_principal);
         $calendars = array_merge($calendars, $subscribed_calendars);
 
-        return $calendars;
+        return $this->calendarAccess?->filterCalendars($calendars) ?? $calendars;
     }
 
     /**

@@ -1,11 +1,11 @@
 {% extends 'layout.html' %}
 
 {% block content %}
-{% include 'parts/navbar.html' %}
+{% if not davyro_embedded %}{% include 'parts/navbar.html' %}{% endif %}
   <div class="container-fluid">
   <div class="wrapper">
 
-    <div id="sidebar">
+    <div id="sidebar"{% if davyro_embedded %} class="davyro-embedded-sidebar"{% endif %}>
       {% include 'parts/sidebar.html' %}
     </div>
 

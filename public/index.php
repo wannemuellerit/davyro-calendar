@@ -7,6 +7,7 @@ use AgenDAV\Middleware\SecurityHeadersMiddleware;
 use AgenDAV\Middleware\TwigGlobalsMiddleware;
 use DI\Bridge\Slim\Bridge as SlimBridge;
 use DI\ContainerBuilder;
+use Slim\Handlers\Strategies\RequestResponse;
 use Slim\Interfaces\RouteParserInterface;
 
 // Vendor directory for Composer
@@ -58,6 +59,14 @@ if (!is_string($csrfSecret) || $csrfSecret === '') {
 
 // Build the Slim app via the PHP-DI bridge so controllers can be autowired
 $app = SlimBridge::create($container);
+
+// The PHP-DI bridge installs a named-argument invocation strategy. Davyro's
+// controllers intentionally use Slim's standard third `$args` array so opaque
+// resource ids can be handled consistently by the shared API helpers. Restore
+// Slim's RequestResponse strategy after the bridge has wired DI-based callable
+// resolution; otherwise every route with a placeholder fails before entering
+// the controller.
+$app->getRouteCollector()->setDefaultInvocationStrategy(new RequestResponse());
 
 // Honour a configured base path so AgenDAV can be served from a subdirectory
 // (e.g. behind a reverse proxy at '/agendav'). Empty = served at the root.

@@ -26,6 +26,7 @@ use AgenDAV\CalDAV\Resource\CalendarObject;
 use AgenDAV\Event\FullCalendarEvent;
 use AgenDAV\Data\Transformer\FullCalendarEventTransformer;
 use AgenDAV\Data\Serializer\PlainSerializer;
+use AgenDAV\Davyro\CalendarAccess;
 use League\Fractal\Resource\Item;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
@@ -49,11 +50,41 @@ class GetBase extends Listing
         ResponseInterface $response
     ): ResponseInterface {
         $calendar = new Calendar($input->get('calendar'));
+        $subscribed = false;
+        if ($this->container->has(CalendarAccess::class)) {
+            $access = $this->container->get(CalendarAccess::class);
+            if ($access->isDavyroSession()) {
+                $kind = $access->resourceKind((string) $input->get('calendar'));
+                if ($kind === null) {
+                    return $response->withStatus(404);
+                }
+                $subscribed = $kind === CalendarAccess::RESOURCE_SUBSCRIBED;
+            }
+            if (!$access->canRead((string) $input->get('calendar'), $subscribed)) {
+                return $response->withStatus(404);
+            }
+        }
+        if ($subscribed) {
+            $calendar->setSubscribed(true);
+        }
         $timezone = new \DateTimeZone($input->get('timezone'));
         $uid = $input->get('uid');
 
         $execution_fetch_start = microtime(true);
-        $object = $this->client->fetchObjectByUid($calendar, $uid);
+        if ($subscribed) {
+            $object = null;
+            foreach ($this->client->fetchObjectsOnSubscribedCalendar($calendar) as $candidate) {
+                if ($candidate->getEvent() !== null && hash_equals((string) $candidate->getEvent()->getUid(), (string) $uid)) {
+                    $object = $candidate;
+                    break;
+                }
+            }
+            if (!$object instanceof CalendarObject) {
+                return $response->withStatus(404);
+            }
+        } else {
+            $object = $this->client->fetchObjectByUid($calendar, $uid);
+        }
         $execution_fetch_end = microtime(true);
 
         $execution_parse_start = microtime(true);

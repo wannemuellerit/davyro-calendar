@@ -1,0 +1,174 @@
+name: ${COMPOSE_PROJECT_NAME:-davyro-calendar}
+
+services:
+  database:
+    image: mariadb:11.8.9@sha256:2439dcd7d14010ecd1ff7a4e1c5abe8e208c34fe35290744deeeaac3569043c3
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: ${CALENDAR_DB_ROOT_PASSWORD:?Set CALENDAR_DB_ROOT_PASSWORD}
+      MARIADB_DATABASE: ${AGENDAV_DB_NAME:-davyro_agendav}
+      MARIADB_USER: ${AGENDAV_DB_USER:-davyro_agendav}
+      MARIADB_PASSWORD: ${AGENDAV_DB_PASSWORD:?Set AGENDAV_DB_PASSWORD}
+      BAIKAL_DB_NAME: ${BAIKAL_DB_NAME:-davyro_baikal}
+      BAIKAL_DB_USER: ${BAIKAL_DB_USER:-davyro_baikal}
+      BAIKAL_DB_PASSWORD: ${BAIKAL_DB_PASSWORD:?Set BAIKAL_DB_PASSWORD}
+    volumes:
+      - database-data:/var/lib/mysql
+      - ./docker/davyro/database/20-create-baikal-database.sh:/docker-entrypoint-initdb.d/20-create-baikal-database.sh:ro
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+    networks:
+      - calendar-backend
+    security_opt:
+      - no-new-privileges:true
+
+  baikal:
+    build:
+      context: docker/davyro/baikal
+    restart: unless-stopped
+    depends_on:
+      database:
+        condition: service_healthy
+    environment:
+      BAIKAL_DB_HOST: database
+      BAIKAL_DB_NAME: ${BAIKAL_DB_NAME:-davyro_baikal}
+      BAIKAL_DB_USER: ${BAIKAL_DB_USER:-davyro_baikal}
+      BAIKAL_DB_PASSWORD: ${BAIKAL_DB_PASSWORD:?Set BAIKAL_DB_PASSWORD}
+      BAIKAL_ADMIN_PASSWORD: ${BAIKAL_ADMIN_PASSWORD:?Set BAIKAL_ADMIN_PASSWORD}
+      BAIKAL_ENCRYPTION_KEY: ${BAIKAL_ENCRYPTION_KEY:?Set BAIKAL_ENCRYPTION_KEY}
+      DAVYRO_RUNTIME_ENVIRONMENT: ${AGENDAV_ENVIRONMENT:-prod}
+      DAVYRO_CREATE_DEMO_USER: ${DAVYRO_CREATE_DEMO_USER:-false}
+      DAVYRO_DEMO_USERNAME: ${DAVYRO_DEMO_USERNAME:-}
+      DAVYRO_DEMO_PASSWORD: ${DAVYRO_DEMO_PASSWORD:-}
+      DAVYRO_DEMO_DISPLAY_NAME: ${DAVYRO_DEMO_DISPLAY_NAME:-}
+      DAVYRO_DEMO_EMAIL: ${DAVYRO_DEMO_EMAIL:-}
+    volumes:
+      - baikal-config:/var/www/baikal/config
+      - baikal-specific:/var/www/baikal/Specific
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1/admin/install/ | grep -Fq 'Installation was already completed'"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+    networks:
+      - calendar-backend
+      - davyro-mail-internal
+    security_opt:
+      - no-new-privileges:true
+
+  calendar:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: ["sh", "/app/docker/davyro/agendav-entrypoint.sh"]
+    depends_on:
+      database:
+        condition: service_healthy
+      baikal:
+        condition: service_healthy
+    environment: &calendar-environment
+      AGENDAV_ENVIRONMENT: ${AGENDAV_ENVIRONMENT:-prod}
+      AGENDAV_DB_HOST: database
+      AGENDAV_DB_NAME: ${AGENDAV_DB_NAME:-davyro_agendav}
+      AGENDAV_DB_USER: ${AGENDAV_DB_USER:-davyro_agendav}
+      AGENDAV_DB_PASSWORD: ${AGENDAV_DB_PASSWORD:?Set AGENDAV_DB_PASSWORD}
+      AGENDAV_CSRF_SECRET: ${AGENDAV_CSRF_SECRET:?Set AGENDAV_CSRF_SECRET}
+      AGENDAV_SESSION_KEY: ${AGENDAV_SESSION_KEY:?Set AGENDAV_SESSION_KEY}
+      AGENDAV_BASE_PATH: ${AGENDAV_BASE_PATH:-/calendar-app}
+      BAIKAL_INTERNAL_BASE_URL: http://baikal/dav.php/
+      BAIKAL_DB_HOST: database
+      BAIKAL_DB_NAME: ${BAIKAL_DB_NAME:-davyro_baikal}
+      BAIKAL_DB_USER: ${BAIKAL_DB_USER:-davyro_baikal}
+      BAIKAL_DB_PASSWORD: ${BAIKAL_DB_PASSWORD:?Set BAIKAL_DB_PASSWORD}
+      DAVYRO_MAIL_INTERNAL_URL: ${DAVYRO_MAIL_INTERNAL_URL:-http://portal}
+      MAIL_BRIDGE_SHARED_SECRET: ${MAIL_BRIDGE_SHARED_SECRET:?Set MAIL_BRIDGE_SHARED_SECRET}
+      CALENDAR_PRINCIPAL_SECRET: ${CALENDAR_PRINCIPAL_SECRET:?Set CALENDAR_PRINCIPAL_SECRET}
+      CALENDAR_SUBSCRIPTION_KEY: ${CALENDAR_SUBSCRIPTION_KEY:?Set CALENDAR_SUBSCRIPTION_KEY}
+      CALENDAR_SUBSCRIPTION_ALLOWED_DOMAINS: ${CALENDAR_SUBSCRIPTION_ALLOWED_DOMAINS:-}
+      CALENDAR_SUBSCRIPTION_CACHE_TTL: ${CALENDAR_SUBSCRIPTION_CACHE_TTL:-900}
+      CALENDAR_SUBSCRIPTION_MAX_BYTES: ${CALENDAR_SUBSCRIPTION_MAX_BYTES:-2097152}
+      CALENDAR_SUBSCRIPTION_MAX_REDIRECTS: ${CALENDAR_SUBSCRIPTION_MAX_REDIRECTS:-3}
+      DAVYRO_CALENDAR_URL: ${DAVYRO_CALENDAR_URL:-http://localhost:8088/calendar-app}
+      DAVYRO_MAIL_URL: ${DAVYRO_MAIL_URL:-}
+      DAVYRO_HUB_URL: ${DAVYRO_HUB_URL:-}
+      DAVYRO_ALLOW_INSECURE_LOCAL_LINKS: ${DAVYRO_ALLOW_INSECURE_LOCAL_LINKS:-false}
+      DAVYRO_CREATE_DEMO_USER: ${DAVYRO_CREATE_DEMO_USER:-false}
+      DAVYRO_DEMO_USERNAME: ${DAVYRO_DEMO_USERNAME:-}
+      DAVYRO_DEMO_PASSWORD: ${DAVYRO_DEMO_PASSWORD:-}
+    volumes:
+      - ./config/settings.standalone.php:/app/config/settings.php:ro
+      - agendav-var:/app/var
+    ports:
+      - "${CALENDAR_HTTP_BIND:-127.0.0.1}:${CALENDAR_HTTP_PORT:-8089}:80"
+    healthcheck:
+      test: ["CMD", "php", "-r", "$$body=@file_get_contents('http://127.0.0.1/calendar-app/login'); exit(is_string($$body) && str_contains($$body, 'Davyro Kalender') ? 0 : 1);"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 40s
+    networks:
+      - calendar-backend
+      - calendar-browser
+      - davyro-mail-internal
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:size=128m,mode=1777
+
+  webcal-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: ["sh", "/app/docker/davyro/webcal-worker-entrypoint.sh"]
+    depends_on:
+      calendar:
+        condition: service_healthy
+    environment:
+      <<: *calendar-environment
+      WEBCAL_WORKER_INTERVAL_SECONDS: ${WEBCAL_WORKER_INTERVAL_SECONDS:-60}
+      WEBCAL_WORKER_BATCH_SIZE: ${WEBCAL_WORKER_BATCH_SIZE:-100}
+      IMIP_WORKER_BATCH_SIZE: ${IMIP_WORKER_BATCH_SIZE:-100}
+    volumes:
+      - ./config/settings.standalone.php:/app/config/settings.php:ro
+      - agendav-var:/app/var
+    healthcheck:
+      test: ["CMD", "php", "-r", "$$f='/tmp/davyro-webcal-worker-heartbeat'; exit(is_file($$f) && time()-(int) filemtime($$f) < 180 ? 0 : 1);"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+    networks:
+      - calendar-backend
+      - calendar-browser
+      - davyro-mail-internal
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+
+volumes:
+  database-data:
+  baikal-config:
+  baikal-specific:
+  agendav-var:
+
+networks:
+  calendar-backend:
+    internal: true
+    ipam:
+      config:
+        - subnet: ${CALENDAR_BACKEND_SUBNET:-10.203.18.0/24}
+  calendar-browser:
+    ipam:
+      config:
+        - subnet: ${CALENDAR_BROWSER_SUBNET:-10.203.19.0/24}
+  davyro-mail-internal:
+    external: true
+    name: ${DAVYRO_MAIL_NETWORK:-davyro-mail_mail-internal}

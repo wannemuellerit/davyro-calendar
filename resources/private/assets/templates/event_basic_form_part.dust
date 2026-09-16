@@ -16,6 +16,21 @@
 <input required name="summary" type="text" size="25" maxlength="255" value="{title}" class="summary form-control" />
 {>form_element_end/}
 
+{?mailboxes}
+{>form_element_start for="organizer_email" label="organizer" /}
+<select name="organizer_email" class="form-control">
+{#mailboxes current_organizer=organizer_email}
+  <option value="{email}"{@eq key="{email}" value="{current_organizer}"} selected="selected"{/eq}>{email}</option>
+{/mailboxes}
+</select>
+{>form_element_end/}
+
+{>form_element_start for="attendees_input" label="attendees" /}
+<textarea name="attendees_input" class="form-control" rows="2" placeholder="name@example.com, team@example.org">{attendees_input}</textarea>
+<p class="help-block">{_labels.attendees_help}</p>
+{>form_element_end/}
+{/mailboxes}
+
 {>form_element_start for="location" label="location" /}
 <input name="location" type="text" size="25" maxlength="255" value="{location}" class="location form-control" />
 {>form_element_end/}

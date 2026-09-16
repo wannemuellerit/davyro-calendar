@@ -53,6 +53,9 @@ $translations = [
     'labels.calendar' => 'Kalender',
     'labels.location' => 'Ort',
     'labels.description' => 'Beschreibung',
+    'labels.organizer' => 'Einladen als',
+    'labels.attendees' => 'Teilnehmende',
+    'labels.attendees_help' => 'E-Mail-Adressen mit Komma oder Leerzeichen trennen. Einladungen und spätere Änderungen werden automatisch versendet.',
 
     'labels.displayname' => 'Anzeigename',
     'labels.color' => 'Farbe',

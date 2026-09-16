@@ -29,6 +29,14 @@ use AgenDAV\Data\Principal;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Symfony\Component\HttpFoundation\ParameterBag;
+use AgenDAV\Davyro\SubscriptionFeedFetcher;
+use AgenDAV\Davyro\WebCal\WebCalReference;
+use AgenDAV\Davyro\WebCal\WebCalRefreshService;
+use AgenDAV\Data\WebCalFeedState;
+use AgenDAV\Davyro\MailboxCalendar;
+use AgenDAV\Davyro\CalendarAccess;
+use AgenDAV\Repositories\MailboxCalendarBindingsRepository;
+use AgenDAV\Exception\NotFound;
 
 class Create extends JSONController
 {
@@ -47,8 +55,36 @@ class Create extends JSONController
         ServerRequestInterface $request,
         ResponseInterface $response
     ): ResponseInterface {
+        $mailAccountId = (int) $this->container->get('session')->get('davyro.active_mail_account_id', 0);
+        $access = $this->container->get(CalendarAccess::class);
+        if ($access->isDavyroSession()) {
+            if ($mailAccountId < 1) {
+                return $response->withStatus(404);
+            }
+            try {
+                return $access->withActiveMailbox(
+                    $mailAccountId,
+                    fn (): ResponseInterface => $this->executeMutation($input, $response, $access, $mailAccountId)
+                );
+            } catch (NotFound) {
+                return $response->withStatus(404);
+            }
+        }
+
+        return $this->executeMutation($input, $response, $access, $mailAccountId);
+    }
+
+    private function executeMutation(
+        ParameterBag $input,
+        ResponseInterface $response,
+        CalendarAccess $access,
+        int $mailAccountId,
+    ): ResponseInterface {
         $calendar_home_set = $this->container->get('session')->get('calendar_home_set');
-        $url = $calendar_home_set . Uuid::generate();
+        $calendarUri = $mailAccountId > 0
+            ? MailboxCalendar::customUriPrefix($mailAccountId).Uuid::generate()
+            : Uuid::generate();
+        $url = $calendar_home_set . $calendarUri;
 
         $subscriptions_repository = $this->container->get('subscriptions.repository');
         $user_principal_url = $this->container->get('session')->get('principal_url');
@@ -56,15 +92,35 @@ class Create extends JSONController
 
         if ($input->getBoolean('is_subscribed') === true) {
             // If the calendar is a subscription, we save it in the database
-            $feedUrl = $input->get('url');
-            $scheme = parse_url($feedUrl, PHP_URL_SCHEME);
-            if (!in_array($scheme, ['http', 'https'], true)) {
+            if (!$access->isDavyroSession() || $mailAccountId < 1) {
+                return $this->generateException($response, $this->container->get('translator')->trans('messages.error_invalidinput'));
+            }
+            try {
+                $fetcher = $this->container->get(SubscriptionFeedFetcher::class);
+                $feedUrl = $fetcher->normalizeUrl((string) $input->get('url'));
+                $subscriptionId = Uuid::generate();
+                $refresh = $this->container->get(WebCalRefreshService::class);
+                $refreshResult = $refresh->refresh(
+                    $access->tenantId(),
+                    $access->userId(),
+                    $mailAccountId,
+                    $subscriptionId,
+                    $feedUrl,
+                    true
+                );
+                if ($refreshResult->state->getStatus() === WebCalFeedState::STATUS_ERROR) {
+                    $refresh->remove($access->tenantId(), $access->userId(), $subscriptionId);
+                    throw new \RuntimeException('WebCal feed could not be loaded');
+                }
+            } catch (\Throwable) {
                 return $this->generateException($response, $this->container->get('translator')->trans('messages.error_invalidinput'));
             }
 
             $subscription = new Subscription();
             $subscription->setOwner($current_user_principal->getURL());
-            $subscription->setCalendar($feedUrl);
+            $subscription->setCalendar(WebCalReference::create($subscriptionId));
+            $subscription->setProperty('davyro.mail_account_id', $mailAccountId);
+            $subscription->setProperty('davyro.subscription_id', $subscriptionId);
             $subscription->setProperty(Calendar::DISPLAYNAME, $input->get('displayname'));
             $subscription->setProperty(Calendar::COLOR, $input->get('calendar_color'));
 
@@ -76,6 +132,26 @@ class Create extends JSONController
             ]);
 
             $this->client->createCalendar($calendar);
+            if ($access->isDavyroSession()) {
+                try {
+                    $this->container->get(MailboxCalendarBindingsRepository::class)->createAdditional(
+                        $access->tenantId(),
+                        $access->userId(),
+                        $mailAccountId,
+                        $access->principal(),
+                        $calendarUri,
+                        $url,
+                        (string) $input->get('displayname'),
+                        (string) $input->get('calendar_color')
+                    );
+                } catch (\Throwable $exception) {
+                    try {
+                        $this->client->deleteCalendar($calendar);
+                    } catch (\Throwable) {
+                    }
+                    throw $exception;
+                }
+            }
         }
 
         return $this->generateSuccess($response);
