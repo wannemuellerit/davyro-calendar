@@ -412,6 +412,10 @@ return [
         $c->get('davyro.mail_internal_url'),
         $c->get('davyro.bridge_shared_secret')
     ),
+    \AgenDAV\Davyro\DavyroSessionGuard::class => fn (ContainerInterface $c) => new \AgenDAV\Davyro\DavyroSessionGuard(
+        $c->get('session'),
+        $c->get(\AgenDAV\Davyro\CalendarBridgeClient::class)
+    ),
     \AgenDAV\Davyro\Outbox\ImipDispatchOutbox::class => fn (ContainerInterface $c) =>
         new \AgenDAV\Davyro\Outbox\ImipDispatchOutbox(
             $c->get('db'),
