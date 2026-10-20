@@ -15,6 +15,12 @@ statt Offline-Autorisierung. Alte Davyro-Sitzungen ohne Sitzungsreferenz müssen
 sich einmal neu anmelden. Beim gemeinsamen Update zuerst das Mail-Portal,
 danach den Kalender ausrollen; es ist keine Datenbankschemamigration nötig.
 
+Die gesperrten Symfony-Pakete `http-foundation` und `yaml` verwenden 7.4.21.
+Damit sind [CVE-2026-108082](https://symfony.com/cve-2026-108082) und
+[CVE-2026-109413](https://symfony.com/cve-2026-109413) einschließlich der
+nachgereichten Header-Whitespace-Korrektur behoben. `composer audit --locked`
+prüft den vollständigen PHP-Abhängigkeitsstand in CI.
+
 ```bash
 cp .env.example .env
 # Lokal direkt startbar; vor Produktion alle Beispiel-Secrets ersetzen
