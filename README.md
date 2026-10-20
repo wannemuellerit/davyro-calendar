@@ -8,6 +8,13 @@ mandantenbegrenzte Kalenderfreigaben, sichere WebCal/ICS-Abonnements sowie
 iCalendar-Einladungen, Antworten, Aktualisierungen und Absagen über die in
 Davyro Mail verbundenen SMTP-Konten.
 
+Davyro-Sitzungen sind serverseitig an die widerrufbare Mail-/Portal-Sitzung
+gebunden. Portal-Logout sperrt auch bereits geöffnete Kalender; jeder geschützte
+API- und Legacy-Zugriff wird erneut geprüft. Ein Portal-Ausfall führt zu 503
+statt Offline-Autorisierung. Alte Davyro-Sitzungen ohne Sitzungsreferenz müssen
+sich einmal neu anmelden. Beim gemeinsamen Update zuerst das Mail-Portal,
+danach den Kalender ausrollen; es ist keine Datenbankschemamigration nötig.
+
 ```bash
 cp .env.example .env
 # Lokal direkt startbar; vor Produktion alle Beispiel-Secrets ersetzen

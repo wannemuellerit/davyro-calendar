@@ -26,6 +26,10 @@ final class DavyroSessionAuthenticator
     private function authenticatePayload(array $payload, bool $embedded): array
     {
         $user = $payload['user'] ?? null;
+        $sessionReference = filter_var($payload['session_reference'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+        if ($sessionReference === false) {
+            throw new \RuntimeException('Missing calendar session reference');
+        }
         if (!is_array($user)) {
             throw new \RuntimeException('Missing calendar user');
         }
@@ -66,6 +70,7 @@ final class DavyroSessionAuthenticator
                 $email,
                 $displayName,
                 $selectedId,
+                $sessionReference,
             ): array {
                 $provisioner = $this->container->get(BaikalPrincipalProvisioner::class);
                 $mailboxIds = array_map(static fn (array $mailbox): int => $mailbox['id'], $mailboxes);
@@ -93,6 +98,7 @@ final class DavyroSessionAuthenticator
 
                 $session = $this->container->get('session');
                 $session->set('davyro.user_id', $userId);
+                $session->set('davyro.session_reference', $sessionReference);
                 $session->set('davyro.tenant_id', $tenantId);
                 $session->set('davyro.tenant_prefix', $tenantPrefix);
                 $session->set('davyro.email', $email);

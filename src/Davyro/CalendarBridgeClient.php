@@ -6,17 +6,45 @@ namespace AgenDAV\Davyro;
 
 use AgenDAV\Davyro\Outbox\ImipTransport;
 use GuzzleHttp\Client;
+use GuzzleHttp\ClientInterface;
 use RuntimeException;
 
-final class CalendarBridgeClient implements ImipTransport
+final class CalendarBridgeClient implements ImipTransport, CalendarSessionAuthority
 {
     public function __construct(
         private readonly string $mailInternalUrl,
         private readonly string $sharedSecret,
+        private readonly ?ClientInterface $sessionHttpClient = null,
     ) {
         if ($this->mailInternalUrl === '' || $this->sharedSecret === '') {
             throw new RuntimeException('Davyro calendar bridge is not configured');
         }
+    }
+
+    public function checkSession(int $reference, int $tenantId, int $userId): bool
+    {
+        if ($reference < 1 || $tenantId < 1 || $userId < 1) {
+            return false;
+        }
+        $path = 'internal/calendar/sessions/check';
+        $body = $this->jsonBody(['session_reference' => $reference, 'tenant_id' => $tenantId, 'user_id' => $userId]);
+        $response = ($this->sessionHttpClient ?? $this->http(3))->request('POST', $path, [
+            'headers' => $this->signedHeaders('POST', $path, $body, 'application/json'),
+            'body' => $body,
+            'allow_redirects' => false,
+        ]);
+        if ($response->getStatusCode() === 401) {
+            return false;
+        }
+        if ($response->getStatusCode() !== 200 || $response->getBody()->getSize() > 4096) {
+            throw new RuntimeException('Calendar session validation unavailable');
+        }
+        $payload = json_decode((string) $response->getBody(), true);
+        if (!is_array($payload) || !is_bool($payload['valid'] ?? null)) {
+            throw new RuntimeException('Invalid calendar session validation response');
+        }
+
+        return $payload['valid'];
     }
 
     /** @return array<string, mixed> */

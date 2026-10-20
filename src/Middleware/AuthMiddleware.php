@@ -2,6 +2,7 @@
 
 namespace AgenDAV\Middleware;
 
+use AgenDAV\Davyro\DavyroSessionGuard;
 use AgenDAV\UserContext;
 use Psr\Container\ContainerInterface;
 use Psr\Http\Message\ResponseInterface;
@@ -25,6 +26,21 @@ class AuthMiddleware implements MiddlewareInterface
     public function process(ServerRequestInterface $request, RequestHandlerInterface $handler): ResponseInterface
     {
         $session = $this->container->get('session');
+
+        if ($session->has('davyro.tenant_id') || $session->has('davyro.user_id')) {
+            try {
+                if (!$this->container->get(DavyroSessionGuard::class)->check()) {
+                    if (strtolower($request->getHeaderLine('X-Requested-With')) === 'xmlhttprequest') {
+                        return (new Response(401))->withHeader('Cache-Control', 'no-store');
+                    }
+                    $mailUrl = rtrim((string) $this->container->get('davyro.mail_url'), '/');
+                    return (new Response(302))->withHeader('Location', $mailUrl.'/login?session_expired=1')
+                        ->withHeader('Cache-Control', 'no-store');
+                }
+            } catch (\Throwable) {
+                return (new Response(503))->withHeader('Cache-Control', 'no-store');
+            }
+        }
 
         if ($session->has('username')) {
             $this->loadUserContext($session->get('username'));

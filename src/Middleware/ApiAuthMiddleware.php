@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace AgenDAV\Middleware;
 
+use AgenDAV\Davyro\DavyroSessionGuard;
 use AgenDAV\UserContext;
 use Psr\Container\ContainerInterface;
 use Psr\Http\Message\ResponseInterface;
@@ -23,7 +24,18 @@ final class ApiAuthMiddleware implements MiddlewareInterface
         $session = $this->container->get('session');
         $username = (string) $session->get('username', '');
         if ($username === '' || (int) $session->get('davyro.tenant_id', 0) < 1) {
-            return $this->json(['error' => ['code' => 'unauthenticated', 'message' => 'Authentication required']], 401);
+            return $this->json(['error' => ['code' => 'unauthenticated']], 401)
+                ->withHeader('Cache-Control', 'no-store');
+        }
+
+        try {
+            if (!$this->container->get(DavyroSessionGuard::class)->check()) {
+                return $this->json(['error' => ['code' => 'unauthenticated']], 401)
+                    ->withHeader('Cache-Control', 'no-store');
+            }
+        } catch (\Throwable) {
+            return $this->json(['error' => ['code' => 'session_check_unavailable']], 503)
+                ->withHeader('Cache-Control', 'no-store');
         }
 
         $preferences = $this->container->get('preferences.repository')->userPreferences($username);

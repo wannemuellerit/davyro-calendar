@@ -153,6 +153,7 @@ SQL);
                 'principal' => 't1-u2',
                 'tenant_principal_prefix' => 't1-',
             ],
+            'session_reference' => 12,
             'initial_mail_account_id' => 3,
             'mailboxes' => [[
                 'id' => 3,
