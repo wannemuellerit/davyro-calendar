@@ -52,7 +52,7 @@ jobs:
 
       - name: Validate production Apache image
         run: |
-          docker build --tag davyro-calendar-ci .
+          docker build --pull --tag davyro-calendar-ci .
           docker run --rm --entrypoint apache2ctl davyro-calendar-ci configtest
           docker run --rm --entrypoint sh davyro-calendar-ci -ec \
             'test ! -d /app/tests && test ! -e /app/vendor/bin/phpunit && test ! -d /app/node_modules'
