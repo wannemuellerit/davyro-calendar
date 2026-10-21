@@ -17,7 +17,7 @@ trap cleanup EXIT
 export DAVYRO_CONTRACT_TEST_IMAGE="$test_image"
 export DAVYRO_BAIKAL_CONTRACT_IMAGE="$baikal_image"
 
-docker build --target test --tag "$test_image" "$repository_root"
+docker build --pull --target test --tag "$test_image" "$repository_root"
 
 docker run --rm "$test_image" sh -ec '
     test -x vendor/bin/phpunit
@@ -28,7 +28,7 @@ docker run --rm "$test_image" sh -ec '
     composer test
 '
 
-"${compose[@]}" build baikal
+"${compose[@]}" build --pull baikal
 test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.version" }}' "$baikal_image")" = '0.12.1'
 docker run --rm --entrypoint php "$baikal_image" -r '
     require "/var/www/baikal/Core/Distrib.php";

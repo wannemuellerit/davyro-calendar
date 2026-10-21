@@ -1,4 +1,4 @@
-FROM php:8.5-cli
+FROM php:8.5.12-cli@sha256:595a7cbb1e0547336319f228c4dc991c2a199350ab12b1c8fda05f73abd06e6b
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
