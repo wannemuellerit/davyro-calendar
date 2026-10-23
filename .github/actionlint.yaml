@@ -1,0 +1,2 @@
+self-hosted-runner:
+  labels: [ci-vps, contabo, linux-docker, contabo-ci-01]

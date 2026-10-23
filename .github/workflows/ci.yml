@@ -12,8 +12,12 @@ permissions:
 jobs:
   build:
 
-    runs-on: ubuntu-latest
-
+    runs-on: >-
+      ${{
+        (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) &&
+        fromJSON('["self-hosted","Linux","X64","contabo-ci-01"]') ||
+        'ubuntu-24.04'
+      }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -59,8 +63,14 @@ jobs:
 
   phase-zero-contract:
     name: Test-Image und Baikal-0.12.1-Vertrag
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+    runs-on: >-
+      ${{
+        (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) &&
+        fromJSON('["self-hosted","Linux","X64","contabo-ci-01"]') ||
+        'ubuntu-24.04'
+      }}
+    # Include admission time for the shared Contabo job slot.
+    timeout-minutes: 120
 
     steps:
       - name: Checkout repository
