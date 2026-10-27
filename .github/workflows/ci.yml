@@ -11,13 +11,7 @@ permissions:
 
 jobs:
   build:
-
-    runs-on: >-
-      ${{
-        (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) &&
-        fromJSON('["self-hosted","Linux","X64","contabo-ci-01"]') ||
-        'ubuntu-24.04'
-      }}
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -53,6 +47,20 @@ jobs:
 
       - name: Validate standalone Compose contract
         run: docker compose --env-file .env.example -f compose.standalone.yaml config --quiet
+
+  production-image:
+    name: Production Apache image
+    runs-on: >-
+      ${{
+        (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) &&
+        fromJSON('["self-hosted","Linux","X64","contabo-ci-01"]') ||
+        'ubuntu-24.04'
+      }}
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
       - name: Validate production Apache image
         run: |
