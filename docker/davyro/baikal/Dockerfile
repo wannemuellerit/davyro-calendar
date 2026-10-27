@@ -5,6 +5,7 @@ ARG BAIKAL_VERSION=0.12.1
 ARG BAIKAL_SHA256=0449abb72b151d39d9c08c63cb83a05d9e9adb065b1165ef6786b0b6a13d203c
 
 RUN apt-get update \
+    && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends ca-certificates curl unzip \
     && docker-php-ext-install -j"$(nproc)" pdo_mysql \
     && curl -fsSL --retry 3 \

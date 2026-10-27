@@ -1,13 +1,13 @@
 ARG PHP_CLI_IMAGE=php:8.5.12-cli-bookworm@sha256:21d7d75ec47b31ffd0fb340e284b6416b509dd1659090e33a0f07f1afa42c361
 ARG PHP_APACHE_IMAGE=php:8.5.12-apache-bookworm@sha256:747123a8d7d28c6f84960df94cc076a406314e4f9d556af0bcfddab81e33bd09
 ARG COMPOSER_IMAGE=composer:2.8.12@sha256:5248900ab8b5f7f880c2d62180e40960cd87f60149ec9a1abfd62ac72a02577c
-ARG NODE_IMAGE=node:20.19.5-bookworm-slim@sha256:9e70124bd00f47dd023e349cd587132ae61892acc0e47ed641416c3e18f401c3
+ARG NODE_IMAGE=node:22-bookworm-slim@sha256:de170b39439eb0e5a3444ad7d60b015614a381e10fecae2e30ec9e735122f38d
 
 FROM ${COMPOSER_IMAGE} AS composer-bin
 FROM ${NODE_IMAGE} AS node-bin
 FROM ${PHP_CLI_IMAGE} AS builder
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
     git \
@@ -26,7 +26,7 @@ COPY composer.json composer.lock /app/
 RUN composer install --no-dev --prefer-dist --no-interaction --no-progress
 
 COPY package.json package-lock.json /app/
-RUN npm ci --ignore-scripts --legacy-peer-deps --no-audit --no-fund
+RUN npm ci --ignore-scripts --no-audit --no-fund
 
 COPY . /app
 
@@ -47,7 +47,7 @@ ENV AGENDAV_ENVIRONMENT=test \
     EC_VERSION=v3.2.1
 
 RUN composer install --prefer-dist --no-interaction --no-progress \
-    && npm ci --legacy-peer-deps --no-audit --no-fund \
+    && npm ci --no-audit --no-fund \
     && curl --fail --silent --show-error --location \
         https://github.com/editorconfig-checker/editorconfig-checker/releases/download/v3.2.1/ec-linux-amd64.tar.gz \
         --output /tmp/ec-linux-amd64.tar.gz \
@@ -69,7 +69,7 @@ RUN rm -rf /app/tests
 
 FROM ${PHP_APACHE_IMAGE} AS runtime
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
     libzip-dev \
     libicu-dev \
     && docker-php-ext-install -j"$(nproc)" pdo_mysql intl zip \

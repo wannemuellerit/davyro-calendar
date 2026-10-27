@@ -1,6 +1,6 @@
 FROM php:8.5.12-apache@sha256:e25ab14ef2cfec3bab9dd66c6cf871691146f428fbd72241b1a2c38fcacf92f5
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
     libzip-dev \
     libicu-dev \
     && docker-php-ext-install -j"$(nproc)" pdo_mysql intl zip \

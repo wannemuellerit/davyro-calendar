@@ -26,3 +26,6 @@ web/public/dist/**/*
 /tests/.phpunit.result.cache
 /coverage
 /test-results
+
+# Local security evidence is reviewed in Git, never needed by the runtime.
+docs/security/

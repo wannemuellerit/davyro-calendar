@@ -7,20 +7,22 @@
     "test": "tests"
   },
   "scripts": {
-    "lint": "eclint check 'app/**' 'bin/**' 'config/**' 'resources/**' 'src/**' 'tests/**' '*.json' '*.md' '*.php' '*.yaml'",
+    "lint": "ec",
     "clean": "rm -rf node_modules && rm -rf resources/public/assets/dist/js/* && rm -rf resources/public/assets/dist/css/*",
     "composer": "composer install --no-dev --prefer-dist",
     "composer-dev": "composer install --dev --prefer-source",
     "build:templates": "dustc --pwd resources/private/assets/templates -o resources/private/assets/templates/templates.js resources/private/assets/templates/*.dust",
     "build:copy": "mkdir -p resources/public/assets/font/fa resources/public/assets/font/bootstrap resources/public/assets/fullcalendar-locale && cp node_modules/es5-shim/es5-shim.js resources/public/assets/dist/js/es5-shim.js && cp -r node_modules/font-awesome/fonts/. resources/public/assets/font/fa/ && cp -r node_modules/bootstrap/fonts/. resources/public/assets/font/bootstrap/ && cp -r node_modules/fullcalendar/dist/locale/. resources/public/assets/fullcalendar-locale/ && cp -r node_modules/jquery-ui/dist/themes/base/images/. resources/public/assets/dist/css/images/",
-    "prebuild:css": "lessc resources/private/assets/less/agendav.less resources/public/assets/dist/css/app.css",
+    "prebuild:css": "lessc --math=always resources/private/assets/less/agendav.less resources/public/assets/dist/css/app.css",
     "build:css": "cat resources/public/assets/dist/css/app.css node_modules/fullcalendar/dist/fullcalendar.css node_modules/jquery-ui/dist/themes/base/jquery-ui.css resources/private/assets/css/colorpicker.css resources/private/assets/css/freeow.css resources/private/assets/css/jquery.qtip.css resources/private/assets/css/jquery.timepicker.css | cleancss -o resources/public/assets/dist/css/agendav.css && cat node_modules/fullcalendar/dist/fullcalendar.print.css resources/private/assets/print-css/print.css | cleancss -o resources/public/assets/dist/css/agendav.print.css",
-    "prebuild:js": "uglifyjs node_modules/moment/moment.js node_modules/moment-timezone/builds/moment-timezone-with-data.min.js node_modules/jquery/dist/jquery.js node_modules/jquery-migrate/dist/jquery-migrate.js node_modules/bootstrap/js/button.js node_modules/bootstrap/js/tab.js node_modules/jquery-ui/dist/jquery-ui.js node_modules/fullcalendar/dist/fullcalendar.js node_modules/dustjs-linkedin/dist/dust-core.js node_modules/dustjs-helpers/dist/dust-helpers.js node_modules/rrule/dist/es5/rrule.js resources/private/assets/js/other/rrule-compat.js resources/private/assets/js/other/imagesloaded.pkg.min.js resources/private/assets/js/other/jquery.colorPicker.js resources/private/assets/js/other/jquery.freeow.min.js resources/private/assets/js/other/jquery.qtip.js resources/private/assets/js/other/jquery.serializeobject.js resources/private/assets/js/other/jquery.timepicker.js resources/private/assets/js/app/app.js resources/private/assets/js/app/datetime.js resources/private/assets/js/app/repeat-form.js resources/private/assets/templates/templates.js -b -o resources/public/assets/dist/js/agendav.js",
+    "prebuild:js": "uglifyjs node_modules/moment/moment.js node_modules/moment-timezone/builds/moment-timezone-with-data.min.js node_modules/jquery/dist/jquery.js node_modules/jquery-migrate/dist/jquery-migrate.js node_modules/bootstrap/js/tab.js node_modules/jquery-ui/dist/jquery-ui.js node_modules/fullcalendar/dist/fullcalendar.js node_modules/dustjs-linkedin/dist/dust-core.js node_modules/dustjs-helpers/dist/dust-helpers.js node_modules/rrule/dist/es5/rrule.js resources/private/assets/js/other/rrule-compat.js resources/private/assets/js/other/imagesloaded.pkg.min.js resources/private/assets/js/other/jquery.colorPicker.js resources/private/assets/js/other/jquery.freeow.min.js resources/private/assets/js/other/jquery.qtip.js resources/private/assets/js/other/jquery.serializeobject.js resources/private/assets/js/other/jquery.timepicker.js resources/private/assets/js/app/app.js resources/private/assets/js/app/datetime.js resources/private/assets/js/app/repeat-form.js resources/private/assets/templates/templates.js -b -o resources/public/assets/dist/js/agendav.js",
     "build:js": "uglifyjs resources/public/assets/dist/js/agendav.js -c -m -o resources/public/assets/dist/js/agendav.min.js",
     "build:assets": "npm run build:templates && npm run build:copy && npm run build:css && npm run build:js",
     "build": "npm run composer && npm run build:assets",
     "dist-clean": "rm -rf node_modules && rm -rf .git",
-    "dist": "npm run composer && npm run build:assets && npm run dist-clean"
+    "dist": "npm run composer && npm run build:assets && npm run dist-clean",
+    "audit": "node scripts/audit-frontend.mjs",
+    "test:frontend": "node --test tests/frontend-security.test.cjs"
   },
   "repository": {
     "type": "git",
@@ -30,7 +32,7 @@
     "CalDAV",
     "calendar"
   ],
-  "author": "Jorge López Pérez",
+  "author": "Jorge L\u00f3pez P\u00e9rez",
   "license": "GPL-3.0",
   "bugs": {
     "url": "https://github.com/agendav/agendav/issues"
@@ -41,10 +43,9 @@
   },
   "devDependencies": {
     "bootstrap": "~3.4.1",
-    "clean-css": "~3.4.22",
-    "dustjs-helpers": "~1.7.3",
-    "dustjs-linkedin": "~2.7.5",
-    "eclint": "^2.8.1",
+    "clean-css": "^5.3.3",
+    "dustjs-helpers": "^1.7.4",
+    "dustjs-linkedin": "^3.0.1",
     "editorconfig-checker": "^6.1.1",
     "es5-shim": "~4.6.7",
     "font-awesome": "~4.7.0",
@@ -52,11 +53,17 @@
     "jquery": "~3.7.1",
     "jquery-migrate": "~3.0.1",
     "jquery-ui": "^1.14.2",
-    "less": "~2.7.3",
-    "moment": "~2.30.1",
+    "less": "^4.9.1",
+    "moment": "^2.31.0",
     "moment-timezone": "~0.5.48",
     "qtip2": "^2.2.0",
     "rrule": "^2.8.1",
-    "uglify-js": "^3.19.3"
+    "uglify-js": "^3.19.3",
+    "clean-css-cli": "^5.6.3"
+  },
+  "overrides": {
+    "dustjs-helpers": {
+      "dustjs-linkedin": "$dustjs-linkedin"
+    }
   }
 }
