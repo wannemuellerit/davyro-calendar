@@ -31,13 +31,15 @@ jobs:
       - name: Audit dependencies for known vulnerabilities
         run: composer audit --locked
 
-      # All npm packages are devDependencies (build-time tooling only — they
-      # never reach the runtime image). Surfaced on every PR for visibility;
-      # continue-on-error so legacy advisories on jquery 3.3.1 / bootstrap 3
-      # don't block unrelated work until those are bumped.
-      - name: Audit npm dependencies
-        run: npm audit --audit-level=high
-        continue-on-error: true
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v6
+        with:
+          node-version: '22'
+      - name: Verify frontend dependencies and generated browser assets
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm run audit
+          npm run build:assets
+          npm run test:frontend
 
       - name: Run test suite
         run: ./vendor/bin/phpunit -c tests/phpunit.xml

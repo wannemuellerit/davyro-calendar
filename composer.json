@@ -50,7 +50,6 @@
             "vendor/bin/php-cs-fixer check"
         ],
         "fix": [
-            "node_modules/.bin/eclint fix 'app/**' 'bin/**' 'config/**' 'docker/**' 'migrations/**' 'resources/**' 'src/**' 'tests/**' '*.json' '*.md' '*.php' '*.yaml' '*.yml' '*.xml' '*.txt'",
             "vendor/bin/php-cs-fixer fix"
         ],
         "test": "vendor/bin/phpunit --configuration tests/phpunit.xml"
