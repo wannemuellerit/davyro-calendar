@@ -1,0 +1,6 @@
+#!/bin/sh
+set -eu
+mkdir -p /run/apache2
+httpd -t
+php-fpm -t
+exec tini -- /usr/local/bin/davyro-web-processes

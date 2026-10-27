@@ -1,0 +1,5 @@
+{
+  "name": "davyro/baikal-security-patch",
+  "require": { "symfony/yaml": "7.4.21" },
+  "config": { "allow-plugins": false, "sort-packages": true }
+}

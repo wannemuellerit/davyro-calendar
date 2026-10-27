@@ -12,7 +12,7 @@ fi
 
 cd /app
 echo "[builder] npm ci"
-npm ci --legacy-peer-deps --no-audit --no-fund
+npm ci --no-audit --no-fund
 
 echo "[builder] composer install"
 composer install --prefer-dist --no-interaction --no-progress
