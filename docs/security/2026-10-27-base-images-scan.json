@@ -1,0 +1,69 @@
+{
+  "date": "2026-10-27",
+  "scanned_at": "2026-10-27T21:40:29.735863+00:00",
+  "scanner": "Trivy 0.76.1; all severities; current vulnerability database; no ignored/unfixed suppression",
+  "production_release_approved": false,
+  "container_findings_status": "no known findings in scanned images",
+  "images": [
+    {
+      "artifact": "local/davyro-calendar-base:alpine-security-20261027",
+      "scope": "production-base",
+      "image_id": "sha256:27d42cdb8077dce6d1eaa58782b777f25cfba4a6709ad4cf953111a37f54e149",
+      "platform": "linux/arm64",
+      "base_os": {
+        "Family": "alpine",
+        "Name": "3.24.3"
+      },
+      "counts": {},
+      "unresolved_findings": []
+    },
+    {
+      "artifact": "local/davyro-calendar:alpine-security-20261027",
+      "scope": "production-image",
+      "image_id": "sha256:8b1de27d70462e5181c34134955510a35a474db63358e12d4ecaabf45e4fb1cc",
+      "platform": "linux/arm64",
+      "base_os": {
+        "Family": "alpine",
+        "Name": "3.24.3"
+      },
+      "counts": {},
+      "unresolved_findings": []
+    },
+    {
+      "artifact": "local/davyro-baikal:alpine-security-20261027",
+      "scope": "production-image",
+      "image_id": "sha256:cabdd72897e0e466ccbcedbcd12fbdb6bb6e8396cb6e40a78ebb7ac8244e7cef",
+      "platform": "linux/arm64",
+      "base_os": {
+        "Family": "alpine",
+        "Name": "3.24.3"
+      },
+      "counts": {},
+      "unresolved_findings": []
+    },
+    {
+      "artifact": "local/davyro-calendar-development:alpine-security-20261027",
+      "scope": "development-image",
+      "image_id": "sha256:9608cdd973ce3c3513fc1a5ba9d7ca9a4f19efbd231669046b4405c94ca19aae",
+      "platform": "linux/arm64",
+      "base_os": {
+        "Family": "alpine",
+        "Name": "3.24.3"
+      },
+      "counts": {},
+      "unresolved_findings": []
+    },
+    {
+      "artifact": "local/davyro-calendar-builder:alpine-security-20261027",
+      "scope": "build-image",
+      "image_id": "sha256:b4e91d3b74ea5ed0d79261cf6ffbbb7e2eda7503bec211dce4ac21f7c6b11028",
+      "platform": "linux/arm64",
+      "base_os": {
+        "Family": "alpine",
+        "Name": "3.24.3"
+      },
+      "counts": {},
+      "unresolved_findings": []
+    }
+  ]
+}
