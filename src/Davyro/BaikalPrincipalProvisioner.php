@@ -39,6 +39,69 @@ final class BaikalPrincipalProvisioner
         ), '=');
     }
 
+    /**
+     * Baikal uses Sabre calendar instances for shares, not writable DAV ACLs.
+     * Reuse its backend so grants and revocations have native read/write ACLs.
+     * @param array<string, bool> $recipients principal username => writable
+     * @return array<string, string> principal username => recipient calendar URI
+     */
+    public function shareCalendar(string $owner, string $uri, array $recipients): array
+    {
+        $this->passwordFor($owner);
+        $tenant = explode('-u', $owner, 2)[0];
+        foreach ($recipients as $recipient => $writable) {
+            $this->passwordFor($recipient);
+            if ($recipient === $owner || explode('-u', $recipient, 2)[0] !== $tenant) {
+                throw new RuntimeException('Calendar share crossed tenant boundary');
+            }
+        }
+        $this->pdo->beginTransaction();
+        try {
+            $query = $this->pdo->prepare('SELECT id, calendarid FROM calendarinstances WHERE principaluri = ? AND uri = ? AND access = 1');
+            $query->execute(['principals/'.$owner, $uri]);
+            $instance = $query->fetch(PDO::FETCH_ASSOC);
+            if (!$instance) {
+                throw new RuntimeException('Calendar owner instance is unavailable');
+            }
+            $id = [(int) $instance['calendarid'], (int) $instance['id']];
+            $backend = new \Sabre\CalDAV\Backend\PDO($this->pdo);
+            $updates = [];
+            foreach ($backend->getInvites($id) as $existing) {
+                $username = basename((string) $existing->principal);
+                if ($username !== $owner && !isset($recipients[$username])) {
+                    if (explode('-u', $username, 2)[0] !== $tenant) {
+                        throw new RuntimeException('Unexpected calendar share principal');
+                    }
+                    $existing->access = \Sabre\DAV\Sharing\Plugin::ACCESS_NOACCESS;
+                    $updates[] = $existing;
+                }
+            }
+            foreach ($recipients as $recipient => $writable) {
+                $sharee = new \Sabre\DAV\Xml\Element\Sharee();
+                $sharee->principal = 'principals/'.$recipient;
+                $sharee->href = $sharee->principal;
+                $sharee->access = $writable ? \Sabre\DAV\Sharing\Plugin::ACCESS_READWRITE : \Sabre\DAV\Sharing\Plugin::ACCESS_READ;
+                $updates[] = $sharee;
+            }
+            $backend->updateInvites($id, $updates);
+            $result = [];
+            $query = $this->pdo->prepare('SELECT uri FROM calendarinstances WHERE calendarid = ? AND principaluri = ? AND access IN (2, 3)');
+            foreach ($recipients as $recipient => $writable) {
+                $query->execute([$id[0], 'principals/'.$recipient]);
+                $result[$recipient] = (string) $query->fetchColumn();
+                if ($result[$recipient] === '') {
+                    throw new RuntimeException('Shared calendar instance is unavailable');
+                }
+            }
+            $this->pdo->commit();
+
+            return $result;
+        } catch (Throwable $exception) {
+            $this->pdo->rollBack();
+            throw $exception;
+        }
+    }
+
     /** @param int[] $mailAccountIds */
     public function isProvisioned(string $username, array $mailAccountIds): bool
     {

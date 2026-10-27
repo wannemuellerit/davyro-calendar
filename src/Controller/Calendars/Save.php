@@ -135,7 +135,7 @@ class Save extends JSONController
             $current_user_principal = new Principal(
                 $this->container->get('session')->get('principal_url')
             );
-            $share = $shares_repository->getSourceShare($calendar, $current_user_principal);
+            $share = $access->shareByRecipientUrl((string) $url);
             $this->applySharedCalendarProperties($share, $input);
             $shares_repository->save($share);
 

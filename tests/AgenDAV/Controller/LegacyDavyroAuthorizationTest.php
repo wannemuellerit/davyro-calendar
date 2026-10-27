@@ -608,9 +608,10 @@ SQL);
         $share->setWith('/dav.php/principals/t1-u5/');
         $share->setCalendar($binding->calendarUrl());
         $share->setWritePermission($writable);
+        $share->setProperty('davyro.calendar_uri', 'shared-test-instance');
         $this->visibleShares = [$share];
 
-        return $binding;
+        return $binding->asShared($writable, '/dav.php/calendars/t1-u5/shared-test-instance/');
     }
 
     private function additionalBinding(): MailboxCalendarBinding

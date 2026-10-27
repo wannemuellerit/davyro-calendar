@@ -96,6 +96,7 @@ services:
       CALENDAR_SUBSCRIPTION_MAX_REDIRECTS: ${CALENDAR_SUBSCRIPTION_MAX_REDIRECTS:-3}
       DAVYRO_CALENDAR_URL: ${DAVYRO_CALENDAR_URL:-http://localhost:8088/calendar-app}
       DAVYRO_MAIL_URL: ${DAVYRO_MAIL_URL:-}
+      DAVYRO_HUB_REQUIRED: ${DAVYRO_HUB_REQUIRED:-false}
       DAVYRO_HUB_URL: ${DAVYRO_HUB_URL:-}
       DAVYRO_ALLOW_INSECURE_LOCAL_LINKS: ${DAVYRO_ALLOW_INSECURE_LOCAL_LINKS:-false}
       DAVYRO_CREATE_DEMO_USER: ${DAVYRO_CREATE_DEMO_USER:-false}
@@ -107,7 +108,7 @@ services:
     ports:
       - "${CALENDAR_HTTP_BIND:-127.0.0.1}:${CALENDAR_HTTP_PORT:-8089}:80"
     healthcheck:
-      test: ["CMD", "php", "-r", "$$body=@file_get_contents('http://127.0.0.1/calendar-app/login'); exit(is_string($$body) && str_contains($$body, 'Davyro Kalender') ? 0 : 1);"]
+      test: ["CMD", "php", "-r", "$$body=@file_get_contents('http://127.0.0.1/calendar-app/login', false, stream_context_create(['http'=>['follow_location'=>0]])); exit((is_string($$body) && str_contains($$body, 'Davyro Kalender')) || str_contains(implode(' ', $$http_response_header ?? []), '/modules/calendar/launch') ? 0 : 1);"]
       interval: 10s
       timeout: 5s
       retries: 20

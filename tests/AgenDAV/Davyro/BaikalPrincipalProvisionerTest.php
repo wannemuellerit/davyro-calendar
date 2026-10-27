@@ -43,6 +43,8 @@ CREATE TABLE calendarinstances (
     calendarcolor VARCHAR(16),
     timezone VARCHAR(191),
     transparent INTEGER,
+    share_href VARCHAR(255),
+    share_displayname VARCHAR(255),
     share_invitestatus INTEGER
 );
 CREATE TABLE calendarobjects (
@@ -70,6 +72,36 @@ CREATE TABLE schedulingobjects (
 );
 SQL);
         $this->provisioner = new BaikalPrincipalProvisioner($this->pdo, str_repeat('secret', 8));
+    }
+
+    public function testNativeSharesUseRecipientInstancesAndRevokeWithoutTouchingOwner(): void
+    {
+        $this->pdo->exec("INSERT INTO calendars (id, synctoken, components) VALUES (42, 1, 'VEVENT')");
+        $this->pdo->exec("INSERT INTO calendarinstances (calendarid, principaluri, access, uri, share_invitestatus) VALUES (42, 'principals/t1-u2', 1, 'mailbox-10', 2)");
+        $read = $this->provisioner->shareCalendar('t1-u2', 'mailbox-10', ['t1-u3' => false]);
+        self::assertNotEmpty($read['t1-u3']);
+        self::assertNotSame('mailbox-10', $read['t1-u3']);
+        $backend = new \Sabre\CalDAV\Backend\PDO($this->pdo);
+        $calendars = $backend->getCalendarsForUser('principals/t1-u3');
+        self::assertCount(1, $calendars);
+        $calendar = new \Sabre\CalDAV\SharedCalendar($backend, $calendars[0]);
+        $privileges = array_column($calendar->getACL(), 'privilege');
+        self::assertContains('{DAV:}read', $privileges);
+        self::assertNotContains('{DAV:}write', $privileges);
+        $write = $this->provisioner->shareCalendar('t1-u2', 'mailbox-10', ['t1-u3' => true]);
+        self::assertSame($read, $write, 'Changing permissions must preserve recipient URLs');
+        $calendars = $backend->getCalendarsForUser('principals/t1-u3');
+        $calendar = new \Sabre\CalDAV\SharedCalendar($backend, $calendars[0]);
+        self::assertContains('{DAV:}write', array_column($calendar->getACL(), 'privilege'));
+        $this->provisioner->shareCalendar('t1-u2', 'mailbox-10', []);
+        self::assertSame([], $backend->getCalendarsForUser('principals/t1-u3'));
+        self::assertCount(1, $backend->getCalendarsForUser('principals/t1-u2'));
+        try {
+            $this->provisioner->shareCalendar('t1-u2', 'mailbox-10', ['t2-u3' => true]);
+            self::fail('Cross-tenant share accepted');
+        } catch (\RuntimeException $exception) {
+            self::assertSame('Calendar share crossed tenant boundary', $exception->getMessage());
+        }
     }
 
     public function testExistingMailboxCalendarReturnsCalendarIdRatherThanInstanceId(): void

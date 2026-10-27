@@ -144,3 +144,15 @@ choose to prioritize stability and compatibility over new features for now.
 ## Contribution
 
 [Contributions](./CONTRIBUTING.md) are welcome!
+
+
+### Hub-geführter Enterprise-Betrieb
+
+Mit `DAVYRO_HUB_REQUIRED=true` und `DAVYRO_HUB_URL` führt der Kalender-Login
+zum signierten Hub-Einstieg `/modules/calendar/launch`. Lokale
+CalDAV-Passwortanmeldungen und bestehende Sitzungen ohne Davyro-Portal-Lease
+gewähren dann keinen Zugriff. Bereits laufende Davyro-Sitzungen werden weiter
+über die Mail-Portal-Autorität geprüft. Das Portal muss seinerseits die aktuelle
+Enterprise-Berechtigung im Hub prüfen (`DAVYRO_HUB_ACCESS_URL` und gemeinsames
+`MAIL_MODULE_MANAGEMENT_SECRET`). Ohne diese Optionen bleibt der eigenständige
+CalDAV-Betrieb verfügbar.

@@ -123,6 +123,7 @@ return [
     'log.level' => 'INFO',
     'davyro.calendar_url' => $trustedBrowserUrl('DAVYRO_CALENDAR_URL'),
     'davyro.mail_url' => $trustedBrowserUrl('DAVYRO_MAIL_URL'),
+    'davyro.hub_required' => filter_var(getenv('DAVYRO_HUB_REQUIRED') ?: 'false', FILTER_VALIDATE_BOOLEAN),
     'davyro.hub_url' => $trustedBrowserUrl('DAVYRO_HUB_URL'),
     'davyro.demo_credentials' => $demoCredentials,
     'davyro.mail_internal_url' => $requiredEnvironment('DAVYRO_MAIL_INTERNAL_URL'),
