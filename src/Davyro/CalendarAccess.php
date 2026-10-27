@@ -318,7 +318,10 @@ final class CalendarAccess
             }
             $binding = $this->bindings->findActiveByUrlForTenant((string) $share->getCalendar(), $this->tenantId());
             if ($binding !== null && !isset($result[$binding->id()])) {
-                $result[$binding->id()] = $binding->asShared($share->isWritable());
+                $shared = $this->sharedBinding($binding, $share);
+                if ($shared !== null) {
+                    $result[$binding->id()] = $shared;
+                }
             }
         }
 
@@ -353,11 +356,39 @@ final class CalendarAccess
                 && MailboxCalendarBindingsRepository::canonicalUrl((string) $share->getCalendar())
                     === MailboxCalendarBindingsRepository::canonicalUrl($candidate->calendarUrl())
             ) {
-                return $candidate->asShared($share->isWritable());
+                return $this->sharedBinding($candidate, $share);
             }
         }
 
         return null;
+    }
+
+    private function sharedBinding(MailboxCalendarBinding $binding, \AgenDAV\Data\Share $share): ?MailboxCalendarBinding
+    {
+        $uri = (string) $share->getProperty('davyro.calendar_uri');
+        if (preg_match('/^[a-zA-Z0-9-]{1,191}$/', $uri) !== 1) {
+            return null;
+        }
+        $home = dirname(rtrim($binding->calendarUrl(), '/'), 2);
+
+        return $binding->asShared($share->isWritable(), $home.'/'.rawurlencode($this->principal()).'/'.rawurlencode($uri).'/');
+    }
+
+    public function shareByRecipientUrl(string $url): \AgenDAV\Data\Share
+    {
+        $principal = new Principal((string) $this->session->get('principal_url', ''));
+        foreach ($this->shares->getSharesFor($principal) as $share) {
+            if (!$this->shareOwnerBelongsToTenant((string) $share->getOwner())) {
+                continue;
+            }
+            $binding = $this->bindings->findActiveByUrlForTenant((string) $share->getCalendar(), $this->tenantId());
+            $shared = $binding !== null ? $this->sharedBinding($binding, $share) : null;
+            if ($shared !== null && MailboxCalendarBindingsRepository::canonicalUrl($shared->calendarUrl())
+                === MailboxCalendarBindingsRepository::canonicalUrl($url)) {
+                return $share;
+            }
+        }
+        throw new NotFound('Shared calendar is unavailable');
     }
 
     public function ownedBindingByUrl(string $calendarUrl): ?MailboxCalendarBinding
@@ -470,24 +501,9 @@ final class CalendarAccess
             return true;
         }
 
-        $principalUrl = (string) $this->session->get('principal_url', '');
-        $principal = new Principal($principalUrl);
-        if ($subscribed) {
-            return $this->subscriptionByUrl($calendarUrl) !== null;
-        }
-
-        foreach ($this->shares->getSharesFor($principal) as $share) {
-            if (!$this->shareOwnerBelongsToTenant((string) $share->getOwner())) {
-                continue;
-            }
-            if (hash_equals((string) $share->getCalendar(), $calendarUrl)
-                && $this->bindings->findActiveByUrlForTenant($calendarUrl, $this->tenantId()) !== null
-            ) {
-                return true;
-            }
-        }
-
-        return false;
+        return $subscribed
+            ? $this->subscriptionByUrl($calendarUrl) !== null
+            : $this->visibleBindingByUrl($calendarUrl) !== null;
     }
 
     public function canWrite(string $calendarUrl): bool
@@ -498,22 +514,8 @@ final class CalendarAccess
         if ($this->mailboxIds() === []) {
             return false;
         }
-        $binding = $this->ownedBindingByUrl($calendarUrl);
-        if ($binding !== null) {
-            return $binding->isWritable();
-        }
 
-        $principal = new Principal((string) $this->session->get('principal_url', ''));
-        foreach ($this->shares->getSharesFor($principal) as $share) {
-            if ($this->shareOwnerBelongsToTenant((string) $share->getOwner())
-                && hash_equals((string) $share->getCalendar(), $calendarUrl)
-                && $this->bindings->findActiveByUrlForTenant($calendarUrl, $this->tenantId()) !== null
-            ) {
-                return $share->isWritable();
-            }
-        }
-
-        return false;
+        return $this->visibleBindingByUrl($calendarUrl)?->isWritable() ?? false;
     }
 
     /** @param Calendar[] $calendars @return Calendar[] */

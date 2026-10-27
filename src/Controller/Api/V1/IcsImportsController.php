@@ -32,7 +32,7 @@ final class IcsImportsController extends ApiController
                 throw new ApiValidation('file is required');
             }
             if (($file->getSize() ?? 0) > \AgenDAV\Davyro\Import\IcsImportService::MAX_BYTES) {
-                throw new ApiValidation('ICS files must not be larger than 2 MiB');
+                throw new ApiValidation('ICS files must not be larger than 20 MiB');
             }
             $contents = (string) $file->getStream();
             $ticket = $this->coordinator()->preview(

@@ -158,6 +158,12 @@ final class InternalInvitationResponse
                     throw new \RuntimeException('CalDAV rejected invitation response');
                 }
 
+                // An incoming organizer update refreshes the existing copy. It
+                // is not another user response. In that flow Mail holds its
+                // mailbox lock; calling back synchronously would also deadlock.
+                if (($input['send_reply'] ?? true) === false) {
+                    return ['stored' => true, 'status' => $status];
+                }
                 $message = $this->container->get(ImipMessageFactory::class)->reply(
                     $calendar->serialize(),
                     $email

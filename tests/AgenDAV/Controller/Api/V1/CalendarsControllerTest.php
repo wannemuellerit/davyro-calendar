@@ -439,6 +439,8 @@ SQL);
         $share->setWith('/dav.php/principals/t1-u5/');
         $share->setCalendar($shared->calendarUrl());
         $share->setWritePermission(false);
+        $share->setProperty('davyro.calendar_uri', 'shared-test-instance');
+        $shared = $shared->asShared(false, '/calendars/t1-u5/shared-test-instance/');
         $this->visibleShares = [$share];
 
         $fetched = [];
@@ -566,6 +568,8 @@ SQL);
         $share->setWith('/dav.php/principals/t1-u5/');
         $share->setCalendar($shared->calendarUrl());
         $share->setWritePermission(false);
+        $share->setProperty('davyro.calendar_uri', 'shared-test-instance');
+        $shared = $shared->asShared(false, '/calendars/t1-u5/shared-test-instance/');
         $this->visibleShares = [$share];
         $this->client->expects(self::never())->method('getCalendarByUrl');
         $request = (new ServerRequestFactory())
@@ -655,6 +659,8 @@ SQL);
         $share->setWith('/dav.php/principals/t1-u5/');
         $share->setCalendar($shared->calendarUrl());
         $share->setWritePermission(true);
+        $share->setProperty('davyro.calendar_uri', 'shared-test-instance');
+        $shared = $shared->asShared(true, '/calendars/t1-u5/shared-test-instance/');
         $this->visibleShares = [$share];
         $this->client->expects(self::never())->method('getCalendarByUrl');
         $request = (new ServerRequestFactory())
@@ -695,6 +701,8 @@ SQL);
         $share->setWith('/dav.php/principals/t1-u5/');
         $share->setCalendar($binding->calendarUrl());
         $share->setWritePermission(false);
+        $share->setProperty('davyro.calendar_uri', 'shared-test-instance');
+        $binding = $binding->asShared(false, '/calendars/t1-u5/shared-test-instance/');
         $this->visibleShares = [$share];
 
         $visible = $this->access->bindingById($binding->id());
@@ -704,6 +712,7 @@ SQL);
         $this->assertFalse($visible->isWritable());
         $this->assertNull($visible->toApiArray()['mailbox_id']);
         $this->assertTrue($this->access->canRead($binding->calendarUrl()));
+        $this->assertFalse($this->access->canRead('/calendars/t1-u6/mailbox-11/'));
         $this->assertFalse($this->access->canWrite($binding->calendarUrl()));
     }
 
@@ -724,6 +733,8 @@ SQL);
         $share->setWith('/dav.php/principals/t1-u5/');
         $share->setCalendar($binding->calendarUrl());
         $share->setWritePermission(true);
+        $share->setProperty('davyro.calendar_uri', 'shared-test-instance');
+        $binding = $binding->asShared(true, '/calendars/t1-u5/shared-test-instance/');
         $this->visibleShares = [$share];
 
         $this->assertNull($this->access->bindingById($binding->id()));
@@ -748,6 +759,8 @@ SQL);
         $share->setWith('/dav.php/principals/t1-u5/');
         $share->setCalendar($binding->calendarUrl());
         $share->setWritePermission(true);
+        $share->setProperty('davyro.calendar_uri', 'shared-test-instance');
+        $binding = $binding->asShared(true, '/calendars/t1-u5/shared-test-instance/');
         $this->visibleShares = [$share];
 
         self::assertNotNull($this->access->bindingById($binding->id()));
@@ -790,6 +803,8 @@ SQL);
         $share->setWith('/dav.php/principals/t1-u5/');
         $share->setCalendar($binding->calendarUrl());
         $share->setWritePermission(true);
+        $share->setProperty('davyro.calendar_uri', 'shared-test-instance');
+        $binding = $binding->asShared(true, '/calendars/t1-u5/shared-test-instance/');
         $this->visibleShares = [$share];
 
         $builder = new VObjectBuilder(new \DateTimeZone('UTC'));

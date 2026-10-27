@@ -87,6 +87,51 @@ final class IcsImportServiceTest extends TestCase
         self::assertSame(0, $preview->importable);
     }
 
+    public function testFullCalendarMigrationIncludesOneThousandPastAndFutureEventsAndIsRepeatable(): void
+    {
+        $events = [];
+        for ($i = 0; $i < 1000; $i++) {
+            $date = (new \DateTimeImmutable('2025-01-01T09:00:00Z'))->modify('+'.$i.' days')->format('Ymd\THis\Z');
+            $events[] = self::event((string) ($i + 1), 'Migration '.$i, $date);
+        }
+        $source = self::calendar(...$events);
+        $store = new InMemoryIcsImportStore();
+        $imports = new IcsImportService($store);
+        $preview = $imports->preview($source, '/migration/');
+        self::assertSame(1000, $preview->importable);
+        $result = $imports->import($source, '/migration/', $preview->fingerprint);
+        self::assertSame(1000, $result->created);
+        self::assertCount(1000, $store->objects);
+        self::assertStringContainsString('20250101T090000Z', $store->objects['1']);
+        self::assertStringContainsString('20270927T090000Z', $store->objects['1000']);
+        $repeat = $imports->import($source, '/migration/', $preview->fingerprint);
+        self::assertSame(0, $repeat->created);
+        self::assertSame(1000, $repeat->skipped);
+    }
+
+    public function testMigrationPreservesRecurrencesExclusionsAlarmsAndProviderPropertiesWithoutScheduling(): void
+    {
+        foreach (['Nextcloud', 'Google Inc', 'Apple Inc'] as $provider) {
+            $source = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//{$provider}//Calendar//EN\r\nMETHOD:REQUEST\r\n"
+                ."BEGIN:VTIMEZONE\r\nTZID:Europe/Berlin\r\nEND:VTIMEZONE\r\n"
+                ."BEGIN:VEVENT\r\nUID:series-{$provider}\r\nDTSTART;TZID=Europe/Berlin:20250101T090000\r\n"
+                ."DTEND;TZID=Europe/Berlin:20250101T100000\r\nRRULE:FREQ=WEEKLY;COUNT=200\r\nEXDATE;TZID=Europe/Berlin:20250108T090000\r\n"
+                ."SUMMARY:Serientermin\r\nLOCATION:Büro\r\nDESCRIPTION:Vergangenheit und Zukunft\r\n"
+                ."ATTENDEE;PARTSTAT=ACCEPTED:mailto:member@example.test\r\nX-CUSTOM-PROVIDER:retained\r\n"
+                ."BEGIN:VALARM\r\nACTION:DISPLAY\r\nTRIGGER:-PT15M\r\nDESCRIPTION:Erinnerung\r\nEND:VALARM\r\nEND:VEVENT\r\n"
+                ."BEGIN:VEVENT\r\nUID:series-{$provider}\r\nRECURRENCE-ID;TZID=Europe/Berlin:20250115T090000\r\n"
+                ."DTSTART;TZID=Europe/Berlin:20250115T110000\r\nSUMMARY:Verschobene Ausnahme\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
+            $store = new InMemoryIcsImportStore();
+            $imports = new IcsImportService($store);
+            $imports->import($source, '/migration/', hash('sha256', $source));
+            $stored = $store->objects['series-'.$provider];
+            foreach (['RRULE:', 'EXDATE;', 'RECURRENCE-ID;', 'BEGIN:VALARM', 'X-CUSTOM-PROVIDER:retained', 'ATTENDEE;', 'BEGIN:VTIMEZONE', 'Verschobene Ausnahme'] as $property) {
+                self::assertStringContainsString($property, $stored);
+            }
+            self::assertStringNotContainsString('METHOD:REQUEST', $stored);
+        }
+    }
+
     private static function event(string $uid, string $summary, string $start, ?string $recurrenceId = null): string
     {
         return "BEGIN:VEVENT\r\n"

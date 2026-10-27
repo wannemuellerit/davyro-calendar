@@ -76,7 +76,7 @@ als veraltet gekennzeichnet. Mit
 `CALENDAR_SUBSCRIPTION_ALLOWED_DOMAINS` kann der Administrator zusätzlich eine
 kommagetrennte Positivliste festlegen.
 
-Zusätzlich können Benutzer eine lokale `.ics`-Datei bis 2 MiB zunächst prüfen
+Zusätzlich können Benutzer eine lokale `.ics`-Datei bis 20 MiB zunächst prüfen
 und anschließend gezielt in einen beschreibbaren Kalender importieren. UID und
 `RECURRENCE-ID` steuern die Duplikatbehandlung. Der Import versendet niemals
 automatisch eine Zu- oder Absage und dient auch als Fallback für Einladungen,

@@ -89,6 +89,8 @@ RUN sed -ri -e 's!/var/www/html!${APACHE_DOCUMENT_ROOT}!g' \
 COPY docker/agendav/agendav.conf /etc/apache2/conf-available/agendav.conf
 RUN a2enconf agendav
 
+RUN printf 'upload_max_filesize=20M\npost_max_size=24M\nmax_execution_time=180\nmemory_limit=256M\n' > /usr/local/etc/php/conf.d/davyro-import.ini
+
 WORKDIR /app
 
 COPY --from=production-source --chown=www-data:www-data /app /app

@@ -63,8 +63,8 @@ final class SharesController extends ApiController
                 $result[] = $this->shareDto(
                     $binding,
                     $share,
-                    (string) $principal->getDisplayName(),
-                    (string) $principal->getEmail()
+                    (string) ($share->getProperty('davyro.name') ?: $principal->getDisplayName()),
+                    (string) ($share->getProperty('davyro.email') ?: $principal->getEmail())
                 );
             }
 
@@ -131,8 +131,10 @@ final class SharesController extends ApiController
                     }
                     $share->setWritePermission($permission === 'write');
                     $share->setProperty('davyro.candidate_id', $candidateId);
+                    $share->setProperty('davyro.name', $candidate['name']);
+                    $share->setProperty('davyro.email', $candidate['email']);
 
-                    $this->applyAcl($binding, $shares);
+                    $this->applyShares($binding, $shares);
                     $this->shares()->save($share);
 
                     return $this->json($response, [
@@ -165,7 +167,7 @@ final class SharesController extends ApiController
                         throw new ApiNotFound();
                     }
 
-                    $this->applyAcl($binding, $remaining);
+                    $this->applyShares($binding, $remaining);
                     $this->shares()->remove($target);
 
                     return $response->withStatus(204);
@@ -209,17 +211,23 @@ final class SharesController extends ApiController
     }
 
     /** @param Share[] $shares */
-    private function applyAcl(MailboxCalendarBinding $binding, array $shares): void
+    private function applyShares(MailboxCalendarBinding $binding, array $shares): void
     {
         $calendar = $this->container->get('caldav.client')->getCalendarByUrl($binding->calendarUrl());
         if (!$calendar->isWritable()) {
             throw new ApiNotFound();
         }
-        $acl = $this->container->get('acl');
+        $recipients = [];
         foreach ($shares as $share) {
-            $acl->addGrant($share->getWith(), $share->isWritable() ? 'read-write' : 'read-only');
+            $recipient = basename(rtrim((string) parse_url($share->getWith(), PHP_URL_PATH), '/'));
+            $recipients[$recipient] = $share->isWritable();
         }
-        $this->container->get('caldav.client')->applyACL($calendar, $acl);
+        $instances = $this->container->get(BaikalPrincipalProvisioner::class)
+            ->shareCalendar($binding->principal(), $binding->calendarUri(), $recipients);
+        foreach ($shares as $share) {
+            $recipient = basename(rtrim((string) parse_url($share->getWith(), PHP_URL_PATH), '/'));
+            $share->setProperty('davyro.calendar_uri', $instances[$recipient]);
+        }
     }
 
     /** @return array<string, mixed> */

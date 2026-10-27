@@ -128,7 +128,7 @@ final class MailboxCalendarBinding
         ];
     }
 
-    public function asShared(bool $writable): self
+    public function asShared(bool $writable, ?string $recipientCalendarUrl = null): self
     {
         return new self(
             $this->id,
@@ -137,7 +137,7 @@ final class MailboxCalendarBinding
             $this->mailAccountId,
             $this->principal,
             $this->calendarUri,
-            $this->calendarUrl,
+            $recipientCalendarUrl ?? $this->calendarUrl,
             $this->name,
             $this->color,
             self::KIND_SHARED,

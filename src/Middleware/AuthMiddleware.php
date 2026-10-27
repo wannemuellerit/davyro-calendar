@@ -27,6 +27,17 @@ class AuthMiddleware implements MiddlewareInterface
     {
         $session = $this->container->get('session');
 
+        if ($this->container->has('davyro.hub_required') && $this->container->get('davyro.hub_required')
+            && (!$session->has('davyro.tenant_id') || !$session->has('davyro.user_id'))) {
+            $session->invalidate();
+            if (strtolower($request->getHeaderLine('X-Requested-With')) === 'xmlhttprequest') {
+                return (new Response(401))->withHeader('Cache-Control', 'no-store');
+            }
+            $hubUrl = rtrim((string) $this->container->get('davyro.hub_url'), '/');
+            return $hubUrl === '' ? new Response(503) : (new Response(302))
+                ->withHeader('Location', $hubUrl.'/modules/calendar/launch')->withHeader('Cache-Control', 'no-store');
+        }
+
         if ($session->has('davyro.tenant_id') || $session->has('davyro.user_id')) {
             try {
                 if (!$this->container->get(DavyroSessionGuard::class)->check()) {

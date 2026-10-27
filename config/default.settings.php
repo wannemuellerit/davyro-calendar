@@ -190,6 +190,7 @@ return [
 
     // Additional authentication methods (FQCNs implementing AuthenticationMethodInterface)
     'auth.methods' => [],
+    'davyro.hub_required' => false,
 
     // HTTP debug logging
     'http.debug' => false,

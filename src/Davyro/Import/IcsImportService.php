@@ -11,8 +11,8 @@ use Sabre\VObject\Reader;
 
 final readonly class IcsImportService
 {
-    public const MAX_BYTES = 2_097_152;
-    public const MAX_EVENTS = 500;
+    public const MAX_BYTES = 20_971_520;
+    public const MAX_EVENTS = 5000;
 
     public function __construct(private IcsImportStore $store)
     {
@@ -29,6 +29,7 @@ final readonly class IcsImportService
         $invalid = 0;
 
         foreach ($groups as $uid => $components) {
+            $uid = substr($uid, 2);
             $stored = $this->store->findByUid($calendarUrl, $uid);
             $existingKeys = $stored === null ? [] : $this->componentKeys($this->parse($stored->icalendar));
             $seen = [];
@@ -78,6 +79,7 @@ final readonly class IcsImportService
         $skipped = 0;
 
         foreach ($this->groupEvents($calendar) as $uid => $components) {
+            $uid = substr($uid, 2);
             $valid = [];
             $seen = [];
             foreach ($components as $component) {
@@ -152,7 +154,7 @@ final readonly class IcsImportService
     {
         $components = $calendar->select('VEVENT');
         if ($components === [] || count($components) > self::MAX_EVENTS) {
-            throw new \InvalidArgumentException('The ICS file must contain between 1 and 500 events');
+            throw new \InvalidArgumentException('The ICS file must contain between 1 and 5000 events');
         }
 
         $groups = [];
@@ -164,7 +166,7 @@ final readonly class IcsImportService
             if ($uid === '' || strlen($uid) > 255) {
                 $uid = '__invalid_'.spl_object_id($component);
             }
-            $groups[$uid][] = $component;
+            $groups['u:'.$uid][] = $component;
         }
 
         return $groups;

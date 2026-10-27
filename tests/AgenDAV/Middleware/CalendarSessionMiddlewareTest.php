@@ -41,7 +41,7 @@ final class CalendarSessionMiddlewareTest extends TestCase
             }
             public function has(string $id): bool
             {
-                return true;
+                return in_array($id, ['session', DavyroSessionGuard::class, 'davyro.mail_url'], true);
             }
         };
         $handler = $this->createMock(RequestHandlerInterface::class);

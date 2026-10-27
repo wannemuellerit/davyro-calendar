@@ -36,6 +36,16 @@ class Authentication
         ServerRequestInterface $request,
         ResponseInterface $response
     ): ResponseInterface {
+        if ($this->container->has('davyro.hub_required') && $this->container->get('davyro.hub_required')) {
+            if ($request->getMethod() !== 'GET') {
+                return $response->withStatus(403)->withHeader('Cache-Control', 'no-store');
+            }
+            $hubUrl = rtrim((string) $this->container->get('davyro.hub_url'), '/');
+            return $hubUrl === '' ? $response->withStatus(503)
+                : $response->withStatus(302)->withHeader('Location', $hubUrl.'/modules/calendar/launch')
+                    ->withHeader('Cache-Control', 'no-store');
+        }
+
         $template_vars = [];
 
         // GET: try alternative auth methods (HTTP Basic, ...) before showing
