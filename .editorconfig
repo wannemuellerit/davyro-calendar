@@ -12,7 +12,7 @@ indent_style = tab
 indent_size = 2
 
 ### Assets
-[{*.css,*.less,*.js,*.mjs}]
+[{*.css,*.less,*.js,*.mjs,*.cjs}]
 indent_style = space
 indent_size = 2
 
@@ -78,6 +78,6 @@ indent_size = 4
 indent_style = space
 indent_size = 2
 
-[{composer.json,composer.lock}]
+[{composer.json,composer.lock,*-composer.lock}]
 indent_style = space
 indent_size = 4

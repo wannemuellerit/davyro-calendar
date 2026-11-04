@@ -36,7 +36,8 @@ final class HubManagedAuthenticationTest extends TestCase
         $handler = $this->createMock(RequestHandlerInterface::class);
         $handler->expects($this->never())->method('handle');
         $response = (new AuthMiddleware($this->container($session)))->process(
-            (new ServerRequestFactory())->createServerRequest('GET', '/calendar'), $handler
+            (new ServerRequestFactory())->createServerRequest('GET', '/calendar'),
+            $handler
         );
         $this->assertSame(302, $response->getStatusCode());
         $this->assertSame('https://hub.test/modules/calendar/launch', $response->getHeaderLine('Location'));
@@ -46,7 +47,9 @@ final class HubManagedAuthenticationTest extends TestCase
     private function container(?Session $session = null): ContainerInterface
     {
         return new class($session ?? new Session(new MockArraySessionStorage())) implements ContainerInterface {
-            public function __construct(private Session $session) {}
+            public function __construct(private Session $session)
+            {
+            }
 
             public function has(string $id): bool
             {
