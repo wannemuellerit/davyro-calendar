@@ -62,6 +62,7 @@
     "clean-css-cli": "^5.6.3"
   },
   "overrides": {
+    "minimatch": "^11.0.1",
     "dustjs-helpers": {
       "dustjs-linkedin": "$dustjs-linkedin"
     }

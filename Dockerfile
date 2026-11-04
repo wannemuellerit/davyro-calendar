@@ -42,7 +42,8 @@ FROM builder AS test
 ENV AGENDAV_ENVIRONMENT=test \
     EC_VERSION=v3.2.1
 
-RUN composer install --prefer-dist --no-interaction --no-progress \
+RUN apk add --no-cache coreutils \
+    && composer install --prefer-dist --no-interaction --no-progress \
     && npm ci --no-audit --no-fund \
     && curl --fail --silent --show-error --location \
         https://github.com/editorconfig-checker/editorconfig-checker/releases/download/v3.2.1/ec-linux-amd64.tar.gz \

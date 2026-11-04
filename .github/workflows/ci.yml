@@ -52,12 +52,7 @@ jobs:
 
   production-image:
     name: Production Apache image
-    runs-on: >-
-      ${{
-        (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) &&
-        fromJSON('["self-hosted","Linux","X64","contabo-ci-01"]') ||
-        'ubuntu-24.04'
-      }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 120
 
     steps:
@@ -67,19 +62,14 @@ jobs:
       - name: Validate production Apache image
         run: |
           docker build --pull --tag davyro-calendar-ci .
-          docker run --rm --entrypoint apache2ctl davyro-calendar-ci configtest
+          docker run --rm --entrypoint httpd davyro-calendar-ci -t
           docker run --rm --entrypoint sh davyro-calendar-ci -ec \
             'test ! -d /app/tests && test ! -e /app/vendor/bin/phpunit && test ! -d /app/node_modules'
 
   phase-zero-contract:
     name: Test-Image und Baikal-0.12.1-Vertrag
-    runs-on: >-
-      ${{
-        (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) &&
-        fromJSON('["self-hosted","Linux","X64","contabo-ci-01"]') ||
-        'ubuntu-24.04'
-      }}
-    # Include admission time for the shared Contabo job slot.
+    runs-on: ubuntu-24.04
+    # Bound the complete isolated image and CalDAV lifecycle contract.
     timeout-minutes: 120
 
     steps:

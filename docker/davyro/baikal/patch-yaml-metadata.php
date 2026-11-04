@@ -11,22 +11,32 @@ if (count($package) !== 1 || $package[0]['version'] !== 'v7.4.21'
 }
 $found = 0;
 foreach ($current['packages'] as &$entry) {
-    if ($entry['name'] !== 'symfony/yaml') continue;
-    if ($entry['version'] !== 'v7.4.15') throw new RuntimeException('Unexpected upstream YAML version');
+    if ($entry['name'] !== 'symfony/yaml') {
+        continue;
+    }
+    if ($entry['version'] !== 'v7.4.15') {
+        throw new RuntimeException('Unexpected upstream YAML version');
+    }
     $oldReference = $entry['source']['reference'];
     $entry = $package[0];
     ++$found;
 }
 unset($entry);
-if ($found !== 1) throw new RuntimeException('Missing/duplicate upstream YAML package');
+if ($found !== 1) {
+    throw new RuntimeException('Missing/duplicate upstream YAML package');
+}
 file_put_contents($base.'installed.json', json_encode($current, JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES|JSON_THROW_ON_ERROR)."\n");
 $php = file_get_contents($base.'installed.php');
 $pattern = "/('symfony\\/yaml' => array\\(.*?\\n        \\),)/s";
 $php = preg_replace_callback($pattern, function ($m) use ($oldReference) {
-    if (!str_contains($m[0], "'pretty_version' => 'v7.4.15'")) throw new RuntimeException('Unexpected installed.php YAML entry');
+    if (!str_contains($m[0], "'pretty_version' => 'v7.4.15'")) {
+        throw new RuntimeException('Unexpected installed.php YAML entry');
+    }
     return str_replace(['v7.4.15', '7.4.15.0', $oldReference], ['v7.4.21', '7.4.21.0', '044907929c7999814378be22da34722c7a86bad4'], $m[0]);
 }, $php, count: $count);
-if ($count !== 1) throw new RuntimeException('Could not update installed.php YAML inventory');
+if ($count !== 1) {
+    throw new RuntimeException('Could not update installed.php YAML inventory');
+}
 file_put_contents($base.'installed.php', $php);
 require '/var/www/baikal/vendor/autoload.php';
 if (Composer\InstalledVersions::getPrettyVersion('symfony/yaml') !== 'v7.4.21'
