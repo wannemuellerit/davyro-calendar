@@ -52,12 +52,7 @@ jobs:
 
   production-image:
     name: Production Apache image
-    runs-on: >-
-      ${{
-        (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) &&
-        fromJSON('["self-hosted","Linux","X64","contabo-ci-01"]') ||
-        'ubuntu-24.04'
-      }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 120
 
     steps:
@@ -73,12 +68,7 @@ jobs:
 
   phase-zero-contract:
     name: Test-Image und Baikal-0.12.1-Vertrag
-    runs-on: >-
-      ${{
-        (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) &&
-        fromJSON('["self-hosted","Linux","X64","contabo-ci-01"]') ||
-        'ubuntu-24.04'
-      }}
+    runs-on: ubuntu-24.04
     # Include admission time for the shared Contabo job slot.
     timeout-minutes: 120
 
