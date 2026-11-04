@@ -69,7 +69,7 @@ jobs:
   phase-zero-contract:
     name: Test-Image und Baikal-0.12.1-Vertrag
     runs-on: ubuntu-24.04
-    # Include admission time for the shared Contabo job slot.
+    # Bound the complete isolated image and CalDAV lifecycle contract.
     timeout-minutes: 120
 
     steps:
