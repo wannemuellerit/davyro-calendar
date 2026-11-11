@@ -28,13 +28,17 @@ test('calendar templates escape user content and retain share indicators', async
   assert.ok(html.includes('fa-share'));
 });
 
-test('legacy build includes only the reviewed Bootstrap plugins', () => {
+test('legacy build ships the reviewed tab module without the Bootstrap npm package', () => {
   const manifest = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-  assert.deepEqual(manifest.scripts['prebuild:js'].match(/node_modules\/bootstrap\/\S+/g), [
-    'node_modules/bootstrap/js/tab.js',
+  const lock = JSON.parse(fs.readFileSync('package-lock.json', 'utf8'));
+  assert.ok(!Object.keys(lock.packages).some(name => /(^|\/)node_modules\/bootstrap$/.test(name)));
+  assert.deepEqual(fs.readdirSync('resources/private/assets/third-party/bootstrap-legacy/js'), ['tab.js']);
+  assert.deepEqual(manifest.scripts['prebuild:js'].match(/\S+bootstrap-legacy\/js\/\S+/g), [
+    'resources/private/assets/third-party/bootstrap-legacy/js/tab.js',
   ]);
   for (const name of ['agendav.js', 'agendav.min.js']) {
     const bundle = fs.readFileSync(`resources/public/assets/dist/js/${name}`, 'utf8');
+    assert.ok(bundle.includes('[data-toggle="tab"]'));
     assert.equal(bundle.includes('data-loading-text'), false);
     assert.equal(bundle.includes('Bootstrap: tooltip'), false);
     assert.equal(bundle.includes('Bootstrap: popover'), false);
