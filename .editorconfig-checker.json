@@ -10,6 +10,7 @@
     "^vendor/",
     "^web/vendor/",
     "^resources/public/assets/",
+    "^resources/private/assets/third-party/bootstrap-legacy/",
     "^web/public/dist/",
     "^tests/\\.phpunit\\.result\\.cache$",
     "^\\.php-cs-fixer\\.cache$",

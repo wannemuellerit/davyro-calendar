@@ -5,6 +5,7 @@ script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 repository_root=$(cd -- "$script_dir/.." && pwd)
 environment_file=${ENV_FILE:-$repository_root/.env.example}
 calendar_url=${CALENDAR_BASE_URL:-http://127.0.0.1:8089/calendar-app}
+mail_url=${DAVYRO_MAIL_URL:-http://localhost:8088}
 demo_user=${DAVYRO_SMOKE_USER:-t-demo-m-demo}
 demo_password=${DAVYRO_SMOKE_PASSWORD:-replace-demo-password}
 compose=(docker compose --env-file "$environment_file" -f "$repository_root/compose.standalone.yaml")
@@ -82,7 +83,7 @@ login_status=$(curl -sS -b "$temporary_directory/cookies" \
 curl -fsS -b "$temporary_directory/cookies" \
     -o "$temporary_directory/calendar.html" "$calendar_url/"
 grep -Fq '<title>Davyro Kalender</title>' "$temporary_directory/calendar.html"
-grep -Fq 'href="http://localhost:8088"' "$temporary_directory/calendar.html"
+grep -Fq "href=\"$mail_url\"" "$temporary_directory/calendar.html"
 
 "${compose[@]}" exec -T baikal test -f /var/www/baikal/Specific/INSTALL_DISABLED
 "${compose[@]}" exec -T baikal curl -fsS http://127.0.0.1/admin/install/ \
