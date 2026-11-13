@@ -88,9 +88,29 @@ Die ausführbaren Backup-, Prüfsummen- und Restore-Abläufe sowie die
 verbindlichen Überwachungssignale stehen in
 [operations.md](operations.md).
 
-## Noch nicht produktionsfertig
+## Produktion hinter Davyro Mail
 
-- kein öffentlicher direkter CalDAV-Endpunkt,
-- die abschließende Navigation und Rechtevergabe im Davyro Hub selbst,
-- produktive Secret-Verteilung über die Zielinfrastruktur,
-- reale Abnahme der iMIP-Abläufe mit Apple-, Google- und Microsoft-Testkonten.
+Auf dem Davyro-Produktionshost nach erfolgreichem Mail-Deployment aus dem
+freigegebenen Calendar-Checkout:
+
+```bash
+bash scripts/deploy-production.sh
+```
+
+Das Skript erzeugt beim Erststart eigene Zugangsdaten, übernimmt das bestehende
+Mail-Bridge-Secret und bindet keine Host-Ports. Baïkal und die Datenbank bleiben
+im separaten Backend-Netz. Calendar verwendet den bestehenden Mail-Gateway
+unter `https://mail.davyro.de/calendar-app` und verlangt Hub-Anmeldung.
+`.env.production` geschützt und getrennt von Datenbank-Backups aufbewahren.
+Ein Merge nach `main` führt dieses Skript nicht automatisch aus.
+
+Nach erfolgreichem Start den Kalender in Mail über
+`DAVYRO_NATIVE_CALENDAR_ENABLED=true` aktivieren und den Cypht-Container mit
+der bestehenden Produktions-Compose-Konfiguration neu erzeugen. Zur
+Rücknahme der nativen Ansicht den vorherigen Wert wiederherstellen und
+denselben Container erneut erzeugen. Calendar-Daten und Volumes dabei nicht
+löschen. Für einen Datenstand-Backup `scripts/backup.sh --env .env.production`
+mit explizitem Ausgabeziel ausführen und anschließend Prüfsummen verifizieren.
+
+Direkter öffentlicher CalDAV-Zugriff ist nicht vorgesehen. Die iMIP-Abnahme mit
+realen Apple-, Google- und Microsoft-Testkonten bleibt separat.
