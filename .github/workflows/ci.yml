@@ -62,7 +62,7 @@ jobs:
             .services.calendar.environment.DAVYRO_HUB_REQUIRED == "true" and
             .services.calendar.environment.AGENDAV_ENVIRONMENT == "prod" and
             .services.calendar.environment.AGENDAV_DB_HOST == "calendar-database" and
-            .services.webcal-worker.environment.BAIKAL_DB_HOST == "calendar-database"
+            .services["webcal-worker"].environment.BAIKAL_DB_HOST == "calendar-database"
           ' >/dev/null
 
   production-image:
