@@ -45,10 +45,25 @@ jobs:
         run: ./vendor/bin/phpunit -c tests/phpunit.xml
 
       - name: Validate operational scripts
-        run: sh -n scripts/backup.sh scripts/verify-backup.sh scripts/restore.sh
+        run: |
+          for script in scripts/backup.sh scripts/verify-backup.sh scripts/restore.sh; do sh -n "$script"; done
+          bash -n scripts/deploy-production.sh
 
       - name: Validate standalone Compose contract
         run: docker compose --env-file .env.example -f compose.standalone.yaml config --quiet
+
+      - name: Verify production isolation
+        run: |
+          docker compose --env-file .env.example -f compose.standalone.yaml -f compose.production.yaml config --format json | jq -e '
+            all(.services[]; ((.ports // []) | length) == 0) and
+            (.services.database.networks | keys) == ["calendar-backend"] and
+            (.services.baikal.networks | keys) == ["calendar-backend"] and
+            .services.baikal.environment.DAVYRO_CREATE_DEMO_USER == "false" and
+            .services.calendar.environment.DAVYRO_HUB_REQUIRED == "true" and
+            .services.calendar.environment.AGENDAV_ENVIRONMENT == "prod" and
+            .services.calendar.environment.AGENDAV_DB_HOST == "calendar-database" and
+            .services.webcal-worker.environment.BAIKAL_DB_HOST == "calendar-database"
+          ' >/dev/null
 
   production-image:
     name: Production Apache image

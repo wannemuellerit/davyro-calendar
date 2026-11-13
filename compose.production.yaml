@@ -1,0 +1,26 @@
+services:
+  database:
+    networks:
+      calendar-backend:
+        aliases: [calendar-database]
+
+  baikal:
+    environment:
+      BAIKAL_DB_HOST: calendar-database
+      DAVYRO_RUNTIME_ENVIRONMENT: prod
+      DAVYRO_CREATE_DEMO_USER: "false"
+    networks: !override
+      - calendar-backend
+
+  calendar:
+    ports: !reset []
+    environment: &production-calendar
+      AGENDAV_ENVIRONMENT: prod
+      AGENDAV_DB_HOST: calendar-database
+      BAIKAL_DB_HOST: calendar-database
+      DAVYRO_CREATE_DEMO_USER: "false"
+      DAVYRO_HUB_REQUIRED: "true"
+      DAVYRO_ALLOW_INSECURE_LOCAL_LINKS: "false"
+
+  webcal-worker:
+    environment: *production-calendar
